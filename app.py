@@ -63,19 +63,13 @@ def init_db():
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(lessons)").fetchall()]
     if "pdf_url" not in cols:
         conn.execute("ALTER TABLE lessons ADD COLUMN pdf_url TEXT DEFAULT ''")
-    # Seed admin, demo student, instructor and courses only once
+    # Seed only the administrator. All students/instructors must be created by an admin.
     if conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 0:
         now = datetime.now().isoformat(timespec="seconds")
-        users = [
-            ("Administrator","admin@example.com","admin123","admin"),
-            ("Demo Student","student@example.com","student123","student"),
-            ("Demo Instructor","instructor@example.com","instructor123","instructor")
-        ]
-        for n,e,p,r in users:
-            conn.execute("INSERT INTO users(name,email,password,role,created_at) VALUES(?,?,?,?,?)",
-                         (n,e,generate_password_hash(p),r,now))
+        conn.execute("INSERT INTO users(name,email,password,role,created_at) VALUES(?,?,?,?,?)",
+                     ("Administrator","admin@example.com",generate_password_hash("admin123"),"admin",now))
     if conn.execute("SELECT COUNT(*) c FROM courses").fetchone()["c"] == 0:
-        instructor = conn.execute("SELECT id FROM users WHERE role='instructor' LIMIT 1").fetchone()["id"]
+        instructor = None
         now = datetime.now().isoformat(timespec="seconds")
         courses = [
             ("Python for Beginners","Learn Python from fundamentals to practical data handling.","Programming","Beginner","https://images.unsplash.com/photo-1526379095098-d400fd0bf935?w=800",instructor),
@@ -155,22 +149,8 @@ def index():
     conn.close()
     return render_template("index.html", courses=courses)
 
-@app.route("/register", methods=["GET","POST"])
-def register():
-    if request.method=="POST":
-        name=request.form["name"].strip(); email=request.form["email"].strip().lower(); pw=request.form["password"]
-        if len(pw)<6: flash("Password must contain at least 6 characters.","danger"); return redirect(url_for("register"))
-        conn=db()
-        try:
-            conn.execute("INSERT INTO users(name,email,password,role,created_at) VALUES(?,?,?,?,?)",
-                         (name,email,generate_password_hash(pw),"student",datetime.now().isoformat(timespec="seconds")))
-            conn.commit(); flash("Account created. Please sign in.","success"); return redirect(url_for("login"))
-        except sqlite3.IntegrityError:
-            flash("Email already registered.","danger")
-        finally: conn.close()
-    return render_template("register.html")
-
 @app.route("/login", methods=["GET","POST"])
+
 def login():
     if request.method=="POST":
         email=request.form["email"].strip().lower(); pw=request.form["password"]
@@ -248,7 +228,7 @@ def learn(course_id,lesson_id):
     if not lesson: return "Lesson not found",404
     return render_template("learn.html",course=c,lessons=lessons,lesson=lesson,done=done)
 
-@app.post("/lesson/<int:lesson_id>/complete")
+@app.post("/lesson/<int:lesson_id>/complete", endpoint="complete_lesson")
 @login_required
 def complete(lesson_id):
     conn=db(); l=conn.execute("SELECT * FROM lessons WHERE id=?",(lesson_id,)).fetchone()
@@ -357,7 +337,11 @@ def create_lesson(course_id):
     if session.get("role")=="instructor" and course["instructor_id"]!=session["user_id"]:
         conn.close(); return "Forbidden",403
     pos=conn.execute("SELECT COALESCE(MAX(position),0)+1 p FROM lessons WHERE course_id=?",(course_id,)).fetchone()["p"]
-    conn.execute("""INSERT INTO lessons(course_id,title,content,video_url,pdf_url,duration,position) VALUES(?,?,?,?,?,?,?)""",(course_id,request.form.get("title",""),request.form.get("content",request.form.get("description","")),request.form.get("video_url",""),request.form.get("pdf_url",""),int(request.form.get("duration",0) or 0),pos))
+    try:
+        duration = int(request.form.get("duration", "0") or 0)
+    except ValueError:
+        duration = 0
+    conn.execute("""INSERT INTO lessons(course_id,title,content,video_url,pdf_url,duration,position) VALUES(?,?,?,?,?,?,?)""",(course_id,request.form.get("title",""),request.form.get("content",request.form.get("description","")),request.form.get("video_url",""),request.form.get("pdf_url",""),duration,pos))
     conn.commit(); conn.close(); flash("Lesson added.","success"); return redirect(url_for("admin"))
 
 @app.post("/admin/course/<int:course_id>/delete")

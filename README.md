@@ -50,3 +50,13 @@ Upload the PDF to Google Drive, set the desired sharing permission (usually View
 
 ## SQLite
 SQLite is included as requested. For important production data, use persistent storage or migrate to PostgreSQL because an ephemeral deployment filesystem can lose local SQLite data on redeploy/restart.
+
+
+## Account creation policy
+Public registration/sign-up is disabled. Only an administrator can create student, instructor, or additional admin accounts from **Manage → User Management**.
+
+Default administrator:
+- Email: `admin@example.com`
+- Password: `admin123`
+
+Change the administrator password after first login.
