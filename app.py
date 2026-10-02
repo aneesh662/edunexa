@@ -38,6 +38,12 @@ def init_db():
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS course_assignments(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, course_id INTEGER NOT NULL,
+      assigned_at TEXT NOT NULL, UNIQUE(user_id,course_id),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS progress(
       id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, lesson_id INTEGER NOT NULL,
       completed INTEGER DEFAULT 0, completed_at TEXT, UNIQUE(user_id,lesson_id),
@@ -145,7 +151,12 @@ def globals():
 @app.route("/")
 def index():
     conn=db()
-    courses=conn.execute("SELECT * FROM courses WHERE published=1 ORDER BY id DESC").fetchall()
+    if session.get("role") == "student":
+        courses=conn.execute("""SELECT c.* FROM courses c
+            JOIN course_assignments ca ON ca.course_id=c.id
+            WHERE ca.user_id=? AND c.published=1 ORDER BY c.id DESC""",(session["user_id"],)).fetchall()
+    else:
+        courses=conn.execute("SELECT * FROM courses WHERE published=1 ORDER BY id DESC").fetchall()
     conn.close()
     return render_template("index.html", courses=courses)
 
@@ -169,8 +180,13 @@ def logout():
 @login_required
 def dashboard():
     conn=db()
-    enrolled=conn.execute("""SELECT c.*, e.enrolled_at FROM courses c JOIN enrollments e ON e.course_id=c.id
-                             WHERE e.user_id=? ORDER BY e.id DESC""",(session["user_id"],)).fetchall()
+    if session.get("role") == "student":
+        enrolled=conn.execute("""SELECT c.*, ca.assigned_at enrolled_at FROM courses c
+            JOIN course_assignments ca ON ca.course_id=c.id
+            WHERE ca.user_id=? AND c.published=1 ORDER BY ca.id DESC""",(session["user_id"],)).fetchall()
+    else:
+        enrolled=conn.execute("""SELECT c.*, e.enrolled_at FROM courses c JOIN enrollments e ON e.course_id=c.id
+            WHERE e.user_id=? ORDER BY e.id DESC""",(session["user_id"],)).fetchall()
     stats={"courses":len(enrolled),"completed":conn.execute(
         "SELECT COUNT(*) c FROM progress WHERE user_id=? AND completed=1",(session["user_id"],)).fetchone()["c"]}
     conn.close()
@@ -180,9 +196,14 @@ def dashboard():
 def courses():
     q=request.args.get("q","").strip(); cat=request.args.get("category","").strip()
     conn=db()
-    sql="SELECT * FROM courses WHERE published=1"; params=[]
-    if q: sql+=" AND (title LIKE ? OR description LIKE ?)"; params += [f"%{q}%",f"%{q}%"]
-    if cat: sql+=" AND category=?"; params.append(cat)
+    params=[]
+    if session.get("role") == "student":
+        sql="""SELECT c.* FROM courses c JOIN course_assignments ca ON ca.course_id=c.id
+               WHERE ca.user_id=? AND c.published=1"""; params=[session["user_id"]]
+    else:
+        sql="SELECT * FROM courses WHERE published=1"
+    if q: sql+=" AND (c.title LIKE ? OR c.description LIKE ?)" if session.get("role") == "student" else " AND (title LIKE ? OR description LIKE ?)"; params += [f"%{q}%",f"%{q}%"]
+    if cat: sql+=(" AND c.category=?" if session.get("role") == "student" else " AND category=?"); params.append(cat)
     sql+=" ORDER BY id DESC"
     rows=conn.execute(sql,params).fetchall()
     cats=conn.execute("SELECT DISTINCT category FROM courses ORDER BY category").fetchall()
@@ -197,8 +218,12 @@ def course(course_id):
     quiz=conn.execute("SELECT * FROM quizzes WHERE course_id=? LIMIT 1",(course_id,)).fetchone()
     enrolled=False
     if session.get("user_id"):
-        enrolled=bool(conn.execute("SELECT 1 FROM enrollments WHERE user_id=? AND course_id=?",
-                                    (session["user_id"],course_id)).fetchone())
+        if session.get("role") == "student":
+            enrolled=bool(conn.execute("SELECT 1 FROM course_assignments WHERE user_id=? AND course_id=?",
+                                       (session["user_id"],course_id)).fetchone())
+        else:
+            enrolled=bool(conn.execute("SELECT 1 FROM enrollments WHERE user_id=? AND course_id=?",
+                                       (session["user_id"],course_id)).fetchone())
     conn.close()
     if not c: return "Course not found",404
     return render_template("course.html",course=c,lessons=lessons,quiz=quiz,enrolled=enrolled)
@@ -206,20 +231,25 @@ def course(course_id):
 @app.post("/course/<int:course_id>/enroll")
 @login_required
 def enroll(course_id):
+    if session.get("role") == "student":
+        flash("Courses are assigned by the administrator. You cannot self-enroll.","warning")
+        return redirect(url_for("course",course_id=course_id))
     conn=db()
-    try:
-        conn.execute("INSERT OR IGNORE INTO enrollments(user_id,course_id,enrolled_at) VALUES(?,?,?)",
-                     (session["user_id"],course_id,datetime.now().isoformat(timespec="seconds")))
-        conn.commit()
-    finally: conn.close()
-    return redirect(url_for("learn",course_id=course_id))
+    conn.execute("INSERT OR IGNORE INTO enrollments(user_id,course_id,enrolled_at) VALUES(?,?,?)",
+                 (session["user_id"],course_id,datetime.now().isoformat(timespec="seconds")))
+    conn.commit(); conn.close()
+    return redirect(url_for("course",course_id=course_id))
 
 @app.route("/learn/<int:course_id>/<int:lesson_id>")
 @login_required
 def learn(course_id,lesson_id):
     conn=db()
-    if not conn.execute("SELECT 1 FROM enrollments WHERE user_id=? AND course_id=?",(session["user_id"],course_id)).fetchone():
-        conn.close(); return redirect(url_for("course",course_id=course_id))
+    if session.get("role") == "student":
+        allowed=conn.execute("SELECT 1 FROM course_assignments WHERE user_id=? AND course_id=?",(session["user_id"],course_id)).fetchone()
+    else:
+        allowed=conn.execute("SELECT 1 FROM enrollments WHERE user_id=? AND course_id=?",(session["user_id"],course_id)).fetchone()
+    if not allowed:
+        conn.close(); flash("This course has not been assigned to your account.","danger"); return redirect(url_for("dashboard"))
     c=conn.execute("SELECT * FROM courses WHERE id=?",(course_id,)).fetchone()
     lessons=conn.execute("SELECT l.*, COALESCE(p.completed,0) completed FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=? WHERE l.course_id=? ORDER BY l.position",(session["user_id"],course_id)).fetchall()
     lesson=conn.execute("SELECT * FROM lessons WHERE id=? AND course_id=?",(lesson_id,course_id)).fetchone()
@@ -245,6 +275,10 @@ def complete(lesson_id):
 def quiz(quiz_id):
     conn=db()
     qz=conn.execute("SELECT * FROM quizzes WHERE id=?",(quiz_id,)).fetchone()
+    if not qz:
+        conn.close(); return "Quiz not found",404
+    if session.get("role") == "student" and not conn.execute("SELECT 1 FROM course_assignments WHERE user_id=? AND course_id=?",(session["user_id"],qz["course_id"])).fetchone():
+        conn.close(); flash("This course has not been assigned to your account.","danger"); return redirect(url_for("dashboard"))
     qs=conn.execute("SELECT * FROM questions WHERE quiz_id=? ORDER BY id",(quiz_id,)).fetchall()
     if request.method=="POST":
         score=sum(1 for q in qs if request.form.get(str(q["id"]))==q["answer"])
@@ -261,7 +295,9 @@ def quiz(quiz_id):
 def admin():
     conn=db()
     if session.get("role") == "admin":
-        users=conn.execute("SELECT id,name,email,role,created_at FROM users ORDER BY id DESC").fetchall()
+        users=conn.execute("""SELECT u.id,u.name,u.email,u.role,u.created_at,
+            (SELECT COUNT(*) FROM course_assignments ca WHERE ca.user_id=u.id) assigned_count
+            FROM users u ORDER BY u.id DESC""").fetchall()
         courses=conn.execute("""SELECT c.*,u.name instructor,
             (SELECT COUNT(*) FROM lessons l WHERE l.course_id=c.id) lesson_count
             FROM courses c LEFT JOIN users u ON u.id=c.instructor_id ORDER BY c.id DESC""").fetchall()
@@ -275,8 +311,12 @@ def admin():
           "courses":conn.execute("SELECT COUNT(*) c FROM courses").fetchone()["c"],
           "lessons":conn.execute("SELECT COUNT(*) c FROM lessons").fetchone()["c"],
           "enrollments":conn.execute("SELECT COUNT(*) c FROM enrollments").fetchone()["c"]}
+    assignments=[]
+    if session.get("role") == "admin":
+        assignments=conn.execute("""SELECT ca.user_id,ca.course_id,c.title,ca.assigned_at
+            FROM course_assignments ca JOIN courses c ON c.id=ca.course_id ORDER BY ca.id DESC""").fetchall()
     conn.close()
-    return render_template("admin.html",data=data,courses=courses,users=users)
+    return render_template("admin.html",data=data,courses=courses,users=users,assignments=assignments)
 
 @app.post("/admin/user/create")
 @login_required
@@ -318,6 +358,26 @@ def delete_user(user_id):
         flash("You cannot delete your own account.","warning"); return redirect(url_for("admin"))
     conn=db(); conn.execute("DELETE FROM users WHERE id=?",(user_id,)); conn.commit(); conn.close()
     flash("User deleted.","success"); return redirect(url_for("admin"))
+
+@app.post("/admin/student/<int:user_id>/assign-course")
+@login_required
+@role_required("admin")
+def assign_course(user_id):
+    course_id=request.form.get("course_id","").strip()
+    conn=db()
+    user=conn.execute("SELECT id,role FROM users WHERE id=?",(user_id,)).fetchone()
+    course=conn.execute("SELECT id FROM courses WHERE id=?",(course_id,)).fetchone() if course_id.isdigit() else None
+    if not user or user["role"] != "student" or not course:
+        conn.close(); flash("Select a valid student and course.","danger"); return redirect(url_for("admin"))
+    conn.execute("INSERT OR IGNORE INTO course_assignments(user_id,course_id,assigned_at) VALUES(?,?,?)",(user_id,int(course_id),datetime.now().isoformat(timespec="seconds")))
+    conn.commit(); conn.close(); flash("Course assigned to student.","success"); return redirect(url_for("admin"))
+
+@app.post("/admin/student/<int:user_id>/remove-course/<int:course_id>")
+@login_required
+@role_required("admin")
+def remove_course_assignment(user_id,course_id):
+    conn=db(); conn.execute("DELETE FROM course_assignments WHERE user_id=? AND course_id=?",(user_id,course_id)); conn.commit(); conn.close()
+    flash("Course assignment removed.","success"); return redirect(url_for("admin"))
 
 @app.post("/admin/course/create")
 @login_required

@@ -68,6 +68,32 @@
       </div>
     </div>
   </div>
+  {% if role == 'admin' %}
+  <div class="card border-0 shadow-sm mb-5">
+    <div class="card-body p-4">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div><h4 class="mb-1">Assign Courses to Students</h4><p class="text-secondary mb-0">Students can access only the courses assigned to their account.</p></div>
+      </div>
+      {% for student in users if student.role == 'student' %}
+      <div class="border rounded-3 p-3 mb-3">
+        <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
+          <div><strong>{{student.name}}</strong><div class="small text-secondary">{{student.email}} • {{student.assigned_count}} assigned course(s)</div></div>
+          <form method="post" action="{{url_for('assign_course',user_id=student.id)}}" class="d-flex gap-2" style="min-width:min(100%,480px)">
+            <select class="form-select" name="course_id" required><option value="">Select course to assign</option>{% for c in courses %}<option value="{{c.id}}">{{c.title}}</option>{% endfor %}</select>
+            <button class="btn btn-primary text-nowrap"><i class="bi bi-plus-circle"></i> Assign</button>
+          </form>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          {% for a in assignments if a.user_id == student.id %}
+            <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2 p-2">{{a.title}}
+              <form method="post" action="{{url_for('remove_course_assignment',user_id=student.id,course_id=a.course_id)}}" class="d-inline" onsubmit="return confirm('Remove this course from {{student.name}}?')"><button type="submit" class="btn btn-sm p-0 text-danger border-0 bg-transparent" title="Remove">&times;</button></form>
+            </span>
+          {% else %}<span class="small text-secondary">No courses assigned yet.</span>{% endfor %}
+        </div>
+      </div>
+      {% else %}<div class="alert alert-info mb-0">Create a student first, then assign courses here.</div>{% endfor %}
+    </div>
+  </div>
   {% endif %}
 
   <div class="card border-0 shadow-sm mb-4">
