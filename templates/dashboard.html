@@ -1,18 +1,5 @@
-{% extends 'base.html' %}
-{% block title %}Dashboard{% endblock %}
-{% block content %}
-<div class="container py-5"><h1 class="fw-bold">My Dashboard</h1><p class="text-secondary">Track your learning progress.</p>
-<div class="row g-4 mt-1">
-{% for c in courses %}
-{% set pct = ((c.completed_lessons / c.total_lessons * 100)|round(0,'floor')) if c.total_lessons else 0 %}
-<div class="col-md-6"><div class="card shadow-sm border-0"><div class="card-body">
-<h5 class="fw-bold">{{ c.title }}</h5><div class="d-flex justify-content-between small mb-1"><span>{{ c.completed_lessons }}/{{ c.total_lessons }} lessons</span><span>{{ pct|int }}%</span></div><div class="progress mb-3"><div class="progress-bar" style="width:{{ pct }}%"></div></div><a href="{{ url_for('learn',course_id=c.id) }}" class="btn btn-primary">Continue</a>
-</div></div></div>
-{% else %}<div class="col-12"><div class="alert alert-info">You have not enrolled in any course yet. <a href="{{ url_for('courses') }}">Browse courses</a>.</div></div>{% endfor %}
-</div>
-<h3 class="fw-bold mt-5">Recent Quiz Results</h3>
-<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Course</th><th>Quiz</th><th>Score</th><th>Date</th></tr></thead><tbody>
-{% for r in results %}<tr><td>{{ r.course_title }}</td><td>{{ r.title }}</td><td>{{ r.score }}/{{ r.total }}</td><td>{{ r.created_at }}</td></tr>{% else %}<tr><td colspan="4" class="text-muted">No quiz attempts yet.</td></tr>{% endfor %}
-</tbody></table></div>
-</div>
+{% extends "base.html" %}{% block title %}Dashboard{% endblock %}{% block content %}
+<div class="container py-5"><div class="mb-4"><h1 class="fw-bold">Good to see you, {{current_user.split()[0]}} 👋</h1><p class="text-secondary">Keep learning consistently.</p></div>
+<div class="row g-3 mb-5"><div class="col-md-4"><div class="stat-card"><div class="icon-box"><i class="bi bi-book"></i></div><div><div class="text-secondary small">Enrolled courses</div><h3>{{stats.courses}}</h3></div></div></div><div class="col-md-4"><div class="stat-card"><div class="icon-box"><i class="bi bi-check2-circle"></i></div><div><div class="text-secondary small">Lessons completed</div><h3>{{stats.completed}}</h3></div></div></div></div>
+<h3 class="fw-bold mb-3">My Learning</h3><div class="row g-4">{% for c in courses %}<div class="col-md-6 col-lg-4"><div class="card h-100"><img src="{{c.thumbnail}}" class="card-img-top"><div class="card-body"><h5>{{c.title}}</h5><a href="{{url_for('course',course_id=c.id)}}" class="btn btn-primary w-100">Open Course</a></div></div></div>{% else %}<div class="col-12"><div class="empty"><i class="bi bi-journal-plus fs-1"></i><h4>No courses yet</h4><a href="{{url_for('courses')}}" class="btn btn-primary">Browse Courses</a></div></div>{% endfor %}</div></div>
 {% endblock %}

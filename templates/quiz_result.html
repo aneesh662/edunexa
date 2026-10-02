@@ -1,8 +1,3 @@
-{% extends 'base.html' %}
-{% block title %}Quiz Result{% endblock %}
-{% block content %}
-<div class="container py-5"><div class="row justify-content-center"><div class="col-md-7"><div class="card shadow-sm text-center border-0"><div class="card-body p-5">
-<div class="display-3">🎉</div><h1 class="fw-bold">Quiz Complete</h1><p class="lead">You scored <strong>{{ score }}/{{ total }}</strong></p>
-<a class="btn btn-primary" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
-</div></div></div></div></div>
+{% extends "base.html" %}{% block title %}Quiz Result{% endblock %}{% block content %}
+<div class="container py-5"><div class="result-card text-center"><i class="bi bi-trophy-fill display-2 text-warning"></i><h1 class="fw-bold mt-3">Quiz Complete!</h1><p class="display-5">{{score}} / {{total}}</p><p class="text-secondary">Your result has been saved.</p><a href="{{url_for('dashboard')}}" class="btn btn-primary">Back to Dashboard</a></div></div>
 {% endblock %}

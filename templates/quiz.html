@@ -1,14 +1,3 @@
-{% extends 'base.html' %}
-{% block title %}Quiz{% endblock %}
-{% block content %}
-<div class="container py-5"><div class="row justify-content-center"><div class="col-lg-8"><h1 class="fw-bold">{{ quiz.title }}</h1><p class="text-secondary">{{ quiz.course_title }}</p>
-<form method="post">
-{% for q in questions %}
-<div class="card shadow-sm mb-3"><div class="card-body"><h5>{{ loop.index }}. {{ q.question }}</h5>
-{% for letter,text in [('a',q.option_a),('b',q.option_b),('c',q.option_c),('d',q.option_d)] %}
-<div class="form-check my-2"><input class="form-check-input" type="radio" name="q{{ q.id }}" value="{{ letter }}" id="q{{ q.id }}{{ letter }}" required><label class="form-check-label" for="q{{ q.id }}{{ letter }}">{{ text }}</label></div>
-{% endfor %}</div></div>
-{% else %}<div class="alert alert-info">No questions available.</div>{% endfor %}
-{% if questions %}<button class="btn btn-primary btn-lg">Submit Quiz</button>{% endif %}
-</form></div></div></div>
+{% extends "base.html" %}{% block title %}{{quiz.title}}{% endblock %}{% block content %}
+<div class="container py-5" style="max-width:850px"><h1 class="fw-bold">{{quiz.title}}</h1><p class="text-secondary">Choose the best answer for each question.</p><form method="post">{% for q in questions %}<div class="card border-0 shadow-sm mb-4"><div class="card-body p-4"><h5>{{loop.index}}. {{q.question}}</h5>{% for key,label in [('A',q.option_a),('B',q.option_b),('C',q.option_c),('D',q.option_d)] %}<label class="option"><input type="radio" name="{{q.id}}" value="{{key}}" required> <span>{{key}}. {{label}}</span></label>{% endfor %}</div></div>{% endfor %}<button class="btn btn-primary btn-lg">Submit Quiz</button></form></div>
 {% endblock %}

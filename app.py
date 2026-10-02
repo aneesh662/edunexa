@@ -1,461 +1,334 @@
-
-import os
-import sqlite3
-from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, abort
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
+import sqlite3, os, secrets
+from datetime import datetime
 
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-DB_PATH = os.environ.get("DATABASE_PATH", os.path.join(BASE_DIR, "tutorial.db"))
-
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB = os.path.join(BASE_DIR, "tutorial.db")
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-secret-key")
+app.secret_key = os.environ.get("SECRET_KEY", "change-this-secret-key")
 
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
+def db():
+    conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 def init_db():
-    conn = get_db()
+    conn = db()
     conn.executescript("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL UNIQUE,
-        password TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'student',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    CREATE TABLE IF NOT EXISTS users(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'student', created_at TEXT NOT NULL
     );
-
-    CREATE TABLE IF NOT EXISTS courses (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        description TEXT NOT NULL,
-        category TEXT NOT NULL,
-        level TEXT NOT NULL DEFAULT 'Beginner',
-        thumbnail TEXT DEFAULT '',
-        instructor_id INTEGER,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(instructor_id) REFERENCES users(id) ON DELETE SET NULL
+    CREATE TABLE IF NOT EXISTS courses(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT, category TEXT,
+      level TEXT, thumbnail TEXT, instructor_id INTEGER, published INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL, FOREIGN KEY(instructor_id) REFERENCES users(id) ON DELETE SET NULL
     );
-
-    CREATE TABLE IF NOT EXISTS lessons (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        course_id INTEGER NOT NULL,
-        title TEXT NOT NULL,
-        description TEXT DEFAULT '',
-        video_url TEXT DEFAULT '',
-        duration TEXT DEFAULT '',
-        lesson_order INTEGER DEFAULT 1,
-        FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
+    CREATE TABLE IF NOT EXISTS lessons(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, course_id INTEGER NOT NULL, title TEXT NOT NULL,
+      content TEXT, video_url TEXT, duration INTEGER DEFAULT 0, position INTEGER DEFAULT 0,
+      FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
     );
-
-    CREATE TABLE IF NOT EXISTS enrollments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        course_id INTEGER NOT NULL,
-        enrolled_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, course_id),
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
+    CREATE TABLE IF NOT EXISTS enrollments(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, course_id INTEGER NOT NULL,
+      enrolled_at TEXT NOT NULL, UNIQUE(user_id,course_id),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
     );
-
-    CREATE TABLE IF NOT EXISTS progress (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        lesson_id INTEGER NOT NULL,
-        completed INTEGER DEFAULT 0,
-        completed_at TEXT,
-        UNIQUE(user_id, lesson_id),
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY(lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
+    CREATE TABLE IF NOT EXISTS progress(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, lesson_id INTEGER NOT NULL,
+      completed INTEGER DEFAULT 0, completed_at TEXT, UNIQUE(user_id,lesson_id),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
     );
-
-    CREATE TABLE IF NOT EXISTS quizzes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        course_id INTEGER NOT NULL,
-        title TEXT NOT NULL,
-        FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
+    CREATE TABLE IF NOT EXISTS quizzes(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, course_id INTEGER NOT NULL, title TEXT NOT NULL,
+      FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
     );
-
-    CREATE TABLE IF NOT EXISTS questions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        quiz_id INTEGER NOT NULL,
-        question TEXT NOT NULL,
-        option_a TEXT NOT NULL,
-        option_b TEXT NOT NULL,
-        option_c TEXT NOT NULL,
-        option_d TEXT NOT NULL,
-        answer TEXT NOT NULL,
-        FOREIGN KEY(quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
+    CREATE TABLE IF NOT EXISTS questions(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, quiz_id INTEGER NOT NULL, question TEXT NOT NULL,
+      option_a TEXT, option_b TEXT, option_c TEXT, option_d TEXT, answer TEXT NOT NULL,
+      FOREIGN KEY(quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
     );
-
-    CREATE TABLE IF NOT EXISTS quiz_results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        quiz_id INTEGER NOT NULL,
-        score INTEGER NOT NULL,
-        total INTEGER NOT NULL,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY(quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
+    CREATE TABLE IF NOT EXISTS quiz_results(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, quiz_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+      score INTEGER NOT NULL, total INTEGER NOT NULL, taken_at TEXT NOT NULL,
+      FOREIGN KEY(quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
-    # Demo users
-    demo = [
-        ("Administrator", "admin@example.com", "admin123", "admin"),
-        ("Demo Student", "student@example.com", "student123", "student"),
-        ("Demo Instructor", "instructor@example.com", "instructor123", "instructor"),
-    ]
-    for name, email, password, role in demo:
-        exists = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
-        if not exists:
-            conn.execute("INSERT INTO users(name,email,password,role) VALUES(?,?,?,?)",
-                         (name, email, generate_password_hash(password), role))
-
-    instructor = conn.execute("SELECT id FROM users WHERE email='instructor@example.com'").fetchone()
-    count = conn.execute("SELECT COUNT(*) AS c FROM courses").fetchone()["c"]
-    if count == 0:
+    # Seed admin, demo student, instructor and courses only once
+    if conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 0:
+        now = datetime.now().isoformat(timespec="seconds")
+        users = [
+            ("Administrator","admin@example.com","admin123","admin"),
+            ("Demo Student","student@example.com","student123","student"),
+            ("Demo Instructor","instructor@example.com","instructor123","instructor")
+        ]
+        for n,e,p,r in users:
+            conn.execute("INSERT INTO users(name,email,password,role,created_at) VALUES(?,?,?,?,?)",
+                         (n,e,generate_password_hash(p),r,now))
+    if conn.execute("SELECT COUNT(*) c FROM courses").fetchone()["c"] == 0:
+        instructor = conn.execute("SELECT id FROM users WHERE role='instructor' LIMIT 1").fetchone()["id"]
+        now = datetime.now().isoformat(timespec="seconds")
         courses = [
-            ("Python for Beginners", "Learn Python fundamentals through practical examples.", "Programming", "Beginner", "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=800", instructor["id"]),
-            ("Excel Data Analysis", "Master Excel formulas, tables, PivotTables and dashboards.", "Data Analytics", "Beginner", "https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800", instructor["id"]),
-            ("Power BI Essentials", "Build professional dashboards and understand business KPIs.", "Business Intelligence", "Intermediate", "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800", instructor["id"]),
+            ("Python for Beginners","Learn Python from fundamentals to practical data handling.","Programming","Beginner","https://images.unsplash.com/photo-1526379095098-d400fd0bf935?w=800",instructor),
+            ("Power BI Data Analytics","Build professional dashboards, KPIs and business reports.","Data Analytics","Intermediate","https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800",instructor),
+            ("Advanced Excel","Master formulas, PivotTables, charts and data analysis.","Business","Intermediate","https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=800",instructor),
+            ("Financial Accounting","Understand accounting principles with practical business examples.","Finance","Beginner","https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800",instructor)
         ]
         for c in courses:
-            cur = conn.execute("""INSERT INTO courses(title,description,category,level,thumbnail,instructor_id)
-                                  VALUES(?,?,?,?,?,?)""", c)
-            cid = cur.lastrowid
-            lesson_data = [
-                ("Introduction", "Course introduction and learning objectives.", "", "8 min", 1),
-                ("Core Concepts", "Learn the most important concepts with examples.", "", "15 min", 2),
-                ("Practical Exercise", "Complete a small practical exercise.", "", "20 min", 3),
+            conn.execute("""INSERT INTO courses(title,description,category,level,thumbnail,instructor_id,created_at)
+                            VALUES(?,?,?,?,?,?,?)""",(*c,now))
+        rows = conn.execute("SELECT id,title FROM courses ORDER BY id").fetchall()
+        lesson_data = {
+            "Python for Beginners":[("Introduction to Python","Python is a readable, versatile programming language. In this lesson learn variables, types and the interpreter.",10),
+                                    ("Variables and Data Types","Strings, numbers, lists, tuples and dictionaries with simple examples.",18),
+                                    ("Conditions and Loops","Use if statements and loops to automate repeated work.",20),
+                                    ("Functions and Mini Project","Create reusable functions and finish a small practical project.",25)],
+            "Power BI Data Analytics":[("Power BI Overview","Understand the report workflow: import, transform, model and visualize.",12),
+                                      ("Power Query Basics","Clean, merge and transform business data.",22),
+                                      ("DAX Fundamentals","Create measures and calculated columns using DAX.",25),
+                                      ("Dashboard Project","Build a management dashboard with KPIs and trends.",30)],
+            "Advanced Excel":[("Excel Foundations","Tables, references, formatting and efficient workbook structure.",12),
+                              ("Lookup and Logic","Use XLOOKUP, INDEX/MATCH and logical functions.",22),
+                              ("PivotTables","Summarize large datasets and build useful reports.",25),
+                              ("Dashboard Project","Combine formulas, pivots and charts into a dashboard.",30)],
+            "Financial Accounting":[("Accounting Fundamentals","Understand the accounting equation and double-entry bookkeeping.",15),
+                                    ("Journal and Ledger","Record transactions and post them to ledgers.",20),
+                                    ("Trial Balance","Prepare and review a trial balance.",18),
+                                    ("Financial Statements","Prepare income statement, balance sheet and cash flow basics.",25)]
+        }
+        for row in rows:
+            pos=1
+            for title,content,dur in lesson_data[row["title"]]:
+                conn.execute("""INSERT INTO lessons(course_id,title,content,video_url,duration,position)
+                                VALUES(?,?,?,?,?,?)""",(row["id"],title,content,"https://www.youtube.com/embed/dQw4w9WgXcQ",dur,pos))
+                pos+=1
+        # One quiz per course
+        for row in rows:
+            conn.execute("INSERT INTO quizzes(course_id,title) VALUES(?,?)",(row["id"],"Knowledge Check"))
+            qid=conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            questions = [
+                ("Which step normally comes first in a data workflow?","Import data","Delete database","Print report","Send email","A"),
+                ("Which item helps track learning completion?","Progress","Wallpaper","Invoice","Folder","A"),
+                ("What is a reusable block of Python code called?","Function","Cell","Slide","Record","A")
             ]
-            for title, desc, video, duration, order_no in lesson_data:
-                conn.execute("""INSERT INTO lessons(course_id,title,description,video_url,duration,lesson_order)
-                                VALUES(?,?,?,?,?,?)""", (cid, title, desc, video, duration, order_no))
-            q = conn.execute("INSERT INTO quizzes(course_id,title) VALUES(?,?)", (cid, "Knowledge Check"))
-            qid = q.lastrowid
-            conn.execute("""INSERT INTO questions(quiz_id,question,option_a,option_b,option_c,option_d,answer)
-                            VALUES(?,?,?,?,?,?,?)""",
-                         (qid, "Which option is used to store text in Python?",
-                          "String", "Integer", "Boolean", "List", "a"))
-    conn.commit()
-    conn.close()
+            for q in questions:
+                conn.execute("""INSERT INTO questions(quiz_id,question,option_a,option_b,option_c,option_d,answer)
+                                VALUES(?,?,?,?,?,?,?)""",(qid,*q))
+    conn.commit(); conn.close()
 
-def login_required(view):
-    @wraps(view)
-    def wrapped(*args, **kwargs):
-        if "user_id" not in session:
-            flash("Please log in to continue.", "warning")
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get("user_id"):
             return redirect(url_for("login", next=request.path))
-        return view(*args, **kwargs)
-    return wrapped
+        return fn(*args, **kwargs)
+    return wrapper
 
 def role_required(*roles):
-    def decorator(view):
-        @wraps(view)
-        def wrapped(*args, **kwargs):
-            if "user_id" not in session:
-                return redirect(url_for("login"))
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
             if session.get("role") not in roles:
-                abort(403)
-            return view(*args, **kwargs)
-        return wrapped
-    return decorator
+                flash("You do not have permission to access that page.","danger")
+                return redirect(url_for("dashboard"))
+            return fn(*args, **kwargs)
+        return wrapper
+    return deco
 
 @app.context_processor
-def inject_user():
-    return {"current_user": session}
+def globals():
+    return {"current_user": session.get("name"), "role": session.get("role")}
 
 @app.route("/")
 def index():
-    conn = get_db()
-    courses = conn.execute("""
-        SELECT c.*, u.name AS instructor,
-        (SELECT COUNT(*) FROM lessons l WHERE l.course_id=c.id) AS lesson_count
-        FROM courses c LEFT JOIN users u ON u.id=c.instructor_id
-        ORDER BY c.id DESC LIMIT 6
-    """).fetchall()
+    conn=db()
+    courses=conn.execute("SELECT * FROM courses WHERE published=1 ORDER BY id DESC").fetchall()
     conn.close()
     return render_template("index.html", courses=courses)
 
-@app.route("/register", methods=["GET", "POST"])
+@app.route("/register", methods=["GET","POST"])
 def register():
-    if request.method == "POST":
-        name = request.form.get("name","").strip()
-        email = request.form.get("email","").strip().lower()
-        password = request.form.get("password","")
-        if not name or not email or len(password) < 6:
-            flash("Enter your name, a valid email and a password of at least 6 characters.", "danger")
-            return render_template("register.html")
-        conn = get_db()
+    if request.method=="POST":
+        name=request.form["name"].strip(); email=request.form["email"].strip().lower(); pw=request.form["password"]
+        if len(pw)<6: flash("Password must contain at least 6 characters.","danger"); return redirect(url_for("register"))
+        conn=db()
         try:
-            conn.execute("INSERT INTO users(name,email,password) VALUES(?,?,?)",
-                         (name, email, generate_password_hash(password)))
-            conn.commit()
+            conn.execute("INSERT INTO users(name,email,password,role,created_at) VALUES(?,?,?,?,?)",
+                         (name,email,generate_password_hash(pw),"student",datetime.now().isoformat(timespec="seconds")))
+            conn.commit(); flash("Account created. Please sign in.","success"); return redirect(url_for("login"))
         except sqlite3.IntegrityError:
-            flash("An account with that email already exists.", "danger")
-            conn.close()
-            return render_template("register.html")
-        conn.close()
-        flash("Account created. Please log in.", "success")
-        return redirect(url_for("login"))
+            flash("Email already registered.","danger")
+        finally: conn.close()
     return render_template("register.html")
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route("/login", methods=["GET","POST"])
 def login():
-    if request.method == "POST":
-        email = request.form.get("email","").strip().lower()
-        password = request.form.get("password","")
-        conn = get_db()
-        user = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-        conn.close()
-        if user and check_password_hash(user["password"], password):
-            session.clear()
-            session["user_id"] = user["id"]
-            session["name"] = user["name"]
-            session["role"] = user["role"]
+    if request.method=="POST":
+        email=request.form["email"].strip().lower(); pw=request.form["password"]
+        conn=db(); u=conn.execute("SELECT * FROM users WHERE email=?",(email,)).fetchone(); conn.close()
+        if u and check_password_hash(u["password"],pw):
+            session.update(user_id=u["id"],name=u["name"],role=u["role"])
             return redirect(request.args.get("next") or url_for("dashboard"))
-        flash("Invalid email or password.", "danger")
+        flash("Invalid email or password.","danger")
     return render_template("login.html")
 
 @app.route("/logout")
 def logout():
-    session.clear()
-    flash("You have been logged out.", "success")
-    return redirect(url_for("index"))
-
-@app.route("/courses")
-def courses():
-    q = request.args.get("q","").strip()
-    category = request.args.get("category","").strip()
-    conn = get_db()
-    sql = """SELECT c.*, u.name AS instructor,
-             (SELECT COUNT(*) FROM lessons l WHERE l.course_id=c.id) AS lesson_count
-             FROM courses c LEFT JOIN users u ON u.id=c.instructor_id WHERE 1=1"""
-    params = []
-    if q:
-        sql += " AND (c.title LIKE ? OR c.description LIKE ?)"
-        params += [f"%{q}%", f"%{q}%"]
-    if category:
-        sql += " AND c.category=?"
-        params.append(category)
-    sql += " ORDER BY c.id DESC"
-    rows = conn.execute(sql, params).fetchall()
-    categories = conn.execute("SELECT DISTINCT category FROM courses ORDER BY category").fetchall()
-    conn.close()
-    return render_template("courses.html", courses=rows, categories=categories, q=q, category=category)
-
-@app.route("/course/<int:course_id>")
-def course_detail(course_id):
-    conn = get_db()
-    course = conn.execute("""SELECT c.*, u.name AS instructor FROM courses c
-                             LEFT JOIN users u ON u.id=c.instructor_id WHERE c.id=?""", (course_id,)).fetchone()
-    if not course:
-        conn.close()
-        abort(404)
-    lessons = conn.execute("SELECT * FROM lessons WHERE course_id=? ORDER BY lesson_order,id", (course_id,)).fetchall()
-    enrolled = False
-    if session.get("user_id"):
-        enrolled = conn.execute("SELECT 1 FROM enrollments WHERE user_id=? AND course_id=?",
-                                (session["user_id"], course_id)).fetchone() is not None
-    conn.close()
-    return render_template("course.html", course=course, lessons=lessons, enrolled=enrolled)
-
-@app.route("/enroll/<int:course_id>", methods=["POST"])
-@login_required
-def enroll(course_id):
-    conn = get_db()
-    if not conn.execute("SELECT 1 FROM courses WHERE id=?", (course_id,)).fetchone():
-        conn.close(); abort(404)
-    try:
-        conn.execute("INSERT INTO enrollments(user_id,course_id) VALUES(?,?)",
-                     (session["user_id"], course_id))
-        conn.commit()
-    except sqlite3.IntegrityError:
-        pass
-    conn.close()
-    flash("You are enrolled in this course.", "success")
-    return redirect(url_for("course_detail", course_id=course_id))
+    session.clear(); return redirect(url_for("index"))
 
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    conn = get_db()
-    courses = conn.execute("""
-        SELECT c.*, e.enrolled_at,
-        (SELECT COUNT(*) FROM lessons l WHERE l.course_id=c.id) AS total_lessons,
-        (SELECT COUNT(*) FROM progress p JOIN lessons l2 ON l2.id=p.lesson_id
-         WHERE p.user_id=? AND l2.course_id=c.id AND p.completed=1) AS completed_lessons
-        FROM enrollments e JOIN courses c ON c.id=e.course_id
-        WHERE e.user_id=? ORDER BY e.id DESC
-    """, (session["user_id"], session["user_id"])).fetchall()
-    results = conn.execute("""
-        SELECT qr.*, q.title, c.title AS course_title
-        FROM quiz_results qr JOIN quizzes q ON q.id=qr.quiz_id
-        JOIN courses c ON c.id=q.course_id
-        WHERE qr.user_id=? ORDER BY qr.id DESC LIMIT 10
-    """, (session["user_id"],)).fetchall()
+    conn=db()
+    enrolled=conn.execute("""SELECT c.*, e.enrolled_at FROM courses c JOIN enrollments e ON e.course_id=c.id
+                             WHERE e.user_id=? ORDER BY e.id DESC""",(session["user_id"],)).fetchall()
+    stats={"courses":len(enrolled),"completed":conn.execute(
+        "SELECT COUNT(*) c FROM progress WHERE user_id=? AND completed=1",(session["user_id"],)).fetchone()["c"]}
     conn.close()
-    return render_template("dashboard.html", courses=courses, results=results)
+    return render_template("dashboard.html",courses=enrolled,stats=stats)
 
-@app.route("/learn/<int:course_id>")
-@login_required
-def learn(course_id):
-    conn = get_db()
-    course = conn.execute("SELECT * FROM courses WHERE id=?", (course_id,)).fetchone()
-    if not course:
-        conn.close(); abort(404)
-    enrolled = conn.execute("SELECT 1 FROM enrollments WHERE user_id=? AND course_id=?",
-                            (session["user_id"], course_id)).fetchone()
-    if not enrolled and session.get("role") not in ("admin","instructor"):
-        conn.close()
-        flash("Please enroll in this course first.", "warning")
-        return redirect(url_for("course_detail", course_id=course_id))
-    lessons = conn.execute("""
-        SELECT l.*, COALESCE(p.completed,0) AS completed
-        FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=?
-        WHERE l.course_id=? ORDER BY l.lesson_order,l.id
-    """, (session["user_id"], course_id)).fetchall()
-    quiz = conn.execute("SELECT * FROM quizzes WHERE course_id=? LIMIT 1", (course_id,)).fetchone()
+@app.route("/courses")
+def courses():
+    q=request.args.get("q","").strip(); cat=request.args.get("category","").strip()
+    conn=db()
+    sql="SELECT * FROM courses WHERE published=1"; params=[]
+    if q: sql+=" AND (title LIKE ? OR description LIKE ?)"; params += [f"%{q}%",f"%{q}%"]
+    if cat: sql+=" AND category=?"; params.append(cat)
+    sql+=" ORDER BY id DESC"
+    rows=conn.execute(sql,params).fetchall()
+    cats=conn.execute("SELECT DISTINCT category FROM courses ORDER BY category").fetchall()
     conn.close()
-    return render_template("learn.html", course=course, lessons=lessons, quiz=quiz)
+    return render_template("courses.html",courses=rows,categories=cats,q=q,cat=cat)
 
-@app.route("/lesson/<int:lesson_id>/complete", methods=["POST"])
+@app.route("/course/<int:course_id>")
+def course(course_id):
+    conn=db()
+    c=conn.execute("""SELECT c.*,u.name instructor FROM courses c LEFT JOIN users u ON u.id=c.instructor_id WHERE c.id=?""",(course_id,)).fetchone()
+    lessons=conn.execute("SELECT * FROM lessons WHERE course_id=? ORDER BY position",(course_id,)).fetchall()
+    quiz=conn.execute("SELECT * FROM quizzes WHERE course_id=? LIMIT 1",(course_id,)).fetchone()
+    enrolled=False
+    if session.get("user_id"):
+        enrolled=bool(conn.execute("SELECT 1 FROM enrollments WHERE user_id=? AND course_id=?",
+                                    (session["user_id"],course_id)).fetchone())
+    conn.close()
+    if not c: return "Course not found",404
+    return render_template("course.html",course=c,lessons=lessons,quiz=quiz,enrolled=enrolled)
+
+@app.post("/course/<int:course_id>/enroll")
 @login_required
-def complete_lesson(lesson_id):
-    conn = get_db()
-    lesson = conn.execute("SELECT * FROM lessons WHERE id=?", (lesson_id,)).fetchone()
-    if not lesson:
-        conn.close(); abort(404)
-    enrolled = conn.execute("SELECT 1 FROM enrollments WHERE user_id=? AND course_id=?",
-                            (session["user_id"], lesson["course_id"])).fetchone()
-    if not enrolled and session.get("role") not in ("admin","instructor"):
-        conn.close(); abort(403)
-    conn.execute("""INSERT INTO progress(user_id,lesson_id,completed,completed_at)
-                    VALUES(?,?,1,CURRENT_TIMESTAMP)
-                    ON CONFLICT(user_id,lesson_id) DO UPDATE SET completed=1,completed_at=CURRENT_TIMESTAMP""",
-                 (session["user_id"], lesson_id))
-    conn.commit(); conn.close()
-    return redirect(url_for("learn", course_id=lesson["course_id"]))
+def enroll(course_id):
+    conn=db()
+    try:
+        conn.execute("INSERT OR IGNORE INTO enrollments(user_id,course_id,enrolled_at) VALUES(?,?,?)",
+                     (session["user_id"],course_id,datetime.now().isoformat(timespec="seconds")))
+        conn.commit()
+    finally: conn.close()
+    return redirect(url_for("learn",course_id=course_id))
+
+@app.route("/learn/<int:course_id>/<int:lesson_id>")
+@login_required
+def learn(course_id,lesson_id):
+    conn=db()
+    if not conn.execute("SELECT 1 FROM enrollments WHERE user_id=? AND course_id=?",(session["user_id"],course_id)).fetchone():
+        conn.close(); return redirect(url_for("course",course_id=course_id))
+    c=conn.execute("SELECT * FROM courses WHERE id=?",(course_id,)).fetchone()
+    lessons=conn.execute("SELECT * FROM lessons WHERE course_id=? ORDER BY position",(course_id,)).fetchall()
+    lesson=conn.execute("SELECT * FROM lessons WHERE id=? AND course_id=?",(lesson_id,course_id)).fetchone()
+    done={r["lesson_id"] for r in conn.execute("SELECT lesson_id FROM progress WHERE user_id=? AND completed=1",(session["user_id"],)).fetchall()}
+    conn.close()
+    if not lesson: return "Lesson not found",404
+    return render_template("learn.html",course=c,lessons=lessons,lesson=lesson,done=done)
+
+@app.post("/lesson/<int:lesson_id>/complete")
+@login_required
+def complete(lesson_id):
+    conn=db(); l=conn.execute("SELECT * FROM lessons WHERE id=?",(lesson_id,)).fetchone()
+    if l:
+        conn.execute("""INSERT INTO progress(user_id,lesson_id,completed,completed_at) VALUES(?,?,1,?)
+                        ON CONFLICT(user_id,lesson_id) DO UPDATE SET completed=1,completed_at=excluded.completed_at""",
+                     (session["user_id"],lesson_id,datetime.now().isoformat(timespec="seconds")))
+        # Backward-compatible migration for existing SQLite databases.
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(lessons)").fetchall()]
+    if "pdf_url" not in cols:
+        conn.execute("ALTER TABLE lessons ADD COLUMN pdf_url TEXT DEFAULT ''")
+    conn.commit()
+    conn.close()
+    return redirect(request.referrer or url_for("dashboard"))
 
 @app.route("/quiz/<int:quiz_id>", methods=["GET","POST"])
 @login_required
 def quiz(quiz_id):
-    conn = get_db()
-    quiz_row = conn.execute("""SELECT q.*, c.title AS course_title, c.id AS course_id
-                               FROM quizzes q JOIN courses c ON c.id=q.course_id WHERE q.id=?""", (quiz_id,)).fetchone()
-    if not quiz_row:
-        conn.close(); abort(404)
-    questions = conn.execute("SELECT * FROM questions WHERE quiz_id=? ORDER BY id", (quiz_id,)).fetchall()
-    if request.method == "POST":
-        score = 0
-        for q in questions:
-            if request.form.get(f"q{q['id']}","").lower() == q["answer"].lower():
-                score += 1
-        total = len(questions)
-        conn.execute("INSERT INTO quiz_results(user_id,quiz_id,score,total) VALUES(?,?,?,?)",
-                     (session["user_id"], quiz_id, score, total))
+    conn=db()
+    qz=conn.execute("SELECT * FROM quizzes WHERE id=?",(quiz_id,)).fetchone()
+    qs=conn.execute("SELECT * FROM questions WHERE quiz_id=? ORDER BY id",(quiz_id,)).fetchall()
+    if request.method=="POST":
+        score=sum(1 for q in qs if request.form.get(str(q["id"]))==q["answer"])
+        conn.execute("INSERT INTO quiz_results(quiz_id,user_id,score,total,taken_at) VALUES(?,?,?,?,?)",
+                     (quiz_id,session["user_id"],score,len(qs),datetime.now().isoformat(timespec="seconds")))
         conn.commit(); conn.close()
-        return render_template("quiz_result.html", quiz=quiz_row, score=score, total=total)
+        return render_template("quiz_result.html",score=score,total=len(qs),quiz=qz)
     conn.close()
-    return render_template("quiz.html", quiz=quiz_row, questions=questions)
+    return render_template("quiz.html",quiz=qz,questions=qs)
 
 @app.route("/admin")
+@login_required
 @role_required("admin","instructor")
 def admin():
-    conn = get_db()
-    if session["role"] == "admin":
-        courses = conn.execute("""SELECT c.*, u.name instructor,
-                                  (SELECT COUNT(*) FROM lessons l WHERE l.course_id=c.id) lesson_count
-                                  FROM courses c LEFT JOIN users u ON u.id=c.instructor_id ORDER BY c.id DESC""").fetchall()
-    else:
-        courses = conn.execute("""SELECT c.*, u.name instructor,
-                                  (SELECT COUNT(*) FROM lessons l WHERE l.course_id=c.id) lesson_count
-                                  FROM courses c LEFT JOIN users u ON u.id=c.instructor_id
-                                  WHERE c.instructor_id=? ORDER BY c.id DESC""", (session["user_id"],)).fetchall()
-    users = conn.execute("SELECT id,name,email,role,created_at FROM users ORDER BY id DESC").fetchall() if session["role"]=="admin" else []
+    conn=db()
+    data={"users":conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"],
+          "courses":conn.execute("SELECT COUNT(*) c FROM courses").fetchone()["c"],
+          "lessons":conn.execute("SELECT COUNT(*) c FROM lessons").fetchone()["c"],
+          "enrollments":conn.execute("SELECT COUNT(*) c FROM enrollments").fetchone()["c"]}
+    courses=conn.execute("SELECT c.*,u.name instructor FROM courses c LEFT JOIN users u ON u.id=c.instructor_id ORDER BY c.id DESC").fetchall()
     conn.close()
-    return render_template("admin.html", courses=courses, users=users)
+    return render_template("admin.html",data=data,courses=courses)
 
-@app.route("/admin/course/new", methods=["POST"])
+@app.post("/admin/course/create")
+@login_required
 @role_required("admin","instructor")
 def create_course():
-    title = request.form.get("title","").strip()
-    description = request.form.get("description","").strip()
-    category = request.form.get("category","General").strip()
-    level = request.form.get("level","Beginner").strip()
-    thumbnail = request.form.get("thumbnail","").strip()
-    if not title or not description:
-        flash("Title and description are required.", "danger")
-        return redirect(url_for("admin"))
-    instructor_id = session["user_id"]
-    conn = get_db()
-    cur = conn.execute("""INSERT INTO courses(title,description,category,level,thumbnail,instructor_id)
-                          VALUES(?,?,?,?,?,?)""", (title,description,category,level,thumbnail,instructor_id))
-    conn.commit(); cid = cur.lastrowid
-    conn.close()
-    flash("Course created successfully.", "success")
-    return redirect(url_for("admin"))
+    title=request.form["title"].strip(); category=request.form["category"].strip()
+    conn=db()
+    conn.execute("""INSERT INTO courses(title,description,category,level,thumbnail,instructor_id,created_at)
+                    VALUES(?,?,?,?,?,?,?)""",
+                 (title,request.form.get("description",""),category,request.form.get("level","Beginner"),
+                  request.form.get("thumbnail","https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800"),
+                  session["user_id"],datetime.now().isoformat(timespec="seconds")))
+    conn.commit(); conn.close(); flash("Course created.","success"); return redirect(url_for("admin"))
 
-@app.route("/admin/course/<int:course_id>/lesson/new", methods=["POST"])
+@app.post("/admin/course/<int:course_id>/lesson")
+@login_required
 @role_required("admin","instructor")
 def create_lesson(course_id):
-    conn = get_db()
-    course = conn.execute("SELECT * FROM courses WHERE id=?", (course_id,)).fetchone()
-    if not course:
-        conn.close(); abort(404)
-    if session["role"]=="instructor" and course["instructor_id"] != session["user_id"]:
-        conn.close(); abort(403)
-    title = request.form.get("title","").strip()
-    description = request.form.get("description","").strip()
-    video_url = request.form.get("video_url","").strip()
-    duration = request.form.get("duration","").strip()
-    order_no = request.form.get("lesson_order","1").strip()
-    try: order_no = int(order_no)
-    except ValueError: order_no = 1
-    if not title:
-        flash("Lesson title is required.", "danger")
-    else:
-        conn.execute("""INSERT INTO lessons(course_id,title,description,video_url,duration,lesson_order)
-                        VALUES(?,?,?,?,?,?)""", (course_id,title,description,video_url,duration,order_no))
-        conn.commit()
-        flash("Lesson added successfully.", "success")
-    conn.close()
-    return redirect(url_for("admin"))
+    conn=db()
+    pos=(conn.execute("SELECT COALESCE(MAX(position),0)+1 p FROM lessons WHERE course_id=?",(course_id,)).fetchone()["p"])
+    conn.execute("""INSERT INTO lessons(course_id,title,content,video_url,duration,position) VALUES(?,?,?,?,?,?)""",
+                 (course_id,request.form["title"],request.form.get("content",""),request.form.get("video_url",""),
+                  int(request.form.get("duration",0) or 0),pos))
+    conn.commit(); conn.close(); flash("Lesson added.","success"); return redirect(url_for("admin"))
 
-@app.route("/admin/course/<int:course_id>/delete", methods=["POST"])
+@app.post("/admin/course/<int:course_id>/delete")
+@login_required
 @role_required("admin")
 def delete_course(course_id):
-    conn = get_db()
-    conn.execute("DELETE FROM courses WHERE id=?", (course_id,))
-    conn.commit(); conn.close()
-    flash("Course deleted.", "success")
-    return redirect(url_for("admin"))
+    conn=db(); conn.execute("DELETE FROM courses WHERE id=?",(course_id,)); conn.commit(); conn.close()
+    flash("Course deleted.","success"); return redirect(url_for("admin"))
 
-@app.route("/health")
-def health():
-    try:
-        conn = get_db()
-        conn.execute("SELECT 1").fetchone()
-        conn.close()
-        return jsonify(status="ok", database="sqlite")
-    except Exception as exc:
-        return jsonify(status="error", error=str(exc)), 500
+@app.route("/api/course/<int:course_id>/progress")
+@login_required
+def progress_api(course_id):
+    conn=db()
+    total=conn.execute("SELECT COUNT(*) c FROM lessons WHERE course_id=?",(course_id,)).fetchone()["c"]
+    done=conn.execute("""SELECT COUNT(*) c FROM progress p JOIN lessons l ON l.id=p.lesson_id
+                         WHERE p.user_id=? AND l.course_id=? AND p.completed=1""",(session["user_id"],course_id)).fetchone()["c"]
+    conn.close(); return jsonify({"total":total,"completed":done,"percent":round(done/total*100) if total else 0})
 
-@app.errorhandler(403)
-def forbidden(_):
-    return render_template("error.html", code=403, message="You do not have permission to access this page."), 403
-
-@app.errorhandler(404)
-def not_found(_):
-    return render_template("error.html", code=404, message="The requested page was not found."), 404
-
-with app.app_context():
+if __name__=="__main__":
     init_db()
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0",port=int(os.environ.get("PORT",5000)),debug=True)

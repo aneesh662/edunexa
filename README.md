@@ -1,95 +1,57 @@
-# Online Tutorial Application
+# Online Tutorial Application — Flask + SQLite
 
-A clean Flask + SQLite + Bootstrap tutorial platform designed for GitHub and Render.
-
-## Features
-
+A responsive learning platform with:
 - Student registration/login
-- Admin and instructor login
-- Course catalogue and search
+- Instructor/admin login
+- Course library and search/filter
 - Course enrollment
-- Student dashboard
-- Lesson learning page
-- Mark lessons complete
-- Quiz and scoring
+- Video lesson player
+- Lesson completion and progress tracking
+- Quizzes and results
 - Admin/instructor course creation
 - Lesson creation
-- Admin course deletion
 - SQLite database
-- Health check endpoint
 - Render deployment configuration
-- Responsive Bootstrap UI
 
-## Demo accounts
+## Run locally
 
-Admin:
-- Email: admin@example.com
-- Password: admin123
-
-Student:
-- Email: student@example.com
-- Password: student123
-
-Instructor:
-- Email: instructor@example.com
-- Password: instructor123
-
-Change these passwords before production use.
-
-## Run on Windows
-
-Open Command Prompt in the project folder:
-
-```bat
+```bash
 python -m venv venv
-venv\Scripts\activate
-python -m pip install --upgrade pip
+# Windows: venv\Scripts\activate
+# macOS/Linux: source venv/bin/activate
 pip install -r requirements.txt
 python app.py
 ```
 
-Open:
-http://127.0.0.1:5000
+Open: http://127.0.0.1:5000
 
-Health check:
-http://127.0.0.1:5000/health
+## Demo accounts
 
-## GitHub
+Admin:
+admin@example.com / admin123
 
-The GitHub repository root must directly contain:
+Student:
+student@example.com / student123
 
-app.py
-requirements.txt
-render.yaml
-Procfile
-.gitignore
-templates/
-static/
+Instructor:
+instructor@example.com / instructor123
 
-Do NOT put these inside another `online_tutorial_flask/` folder when connecting the repository to Render.
+Change these passwords before production use.
 
-## Render
+## SQLite database
 
-Create a new Web Service from the GitHub repository.
+The database is automatically created as `tutorial.db` in the project root after the first run.
 
-Language:
-Python 3
+## GitHub + Render
 
-Build Command:
-pip install -r requirements.txt
+1. Create a GitHub repository.
+2. Upload all project files.
+3. On Render choose New > Web Service.
+4. Connect the GitHub repository.
+5. Build command: `pip install -r requirements.txt`
+6. Start command: `gunicorn app:app`
+7. Add `SECRET_KEY` as a secret environment variable.
 
-Start Command:
-gunicorn app:app
+### Important production note
 
-Root Directory:
-Leave blank when the files above are at repository root.
-
-The included render.yaml can also be used as a Blueprint.
-
-## SQLite note
-
-SQLite is included because this project is intended for learning, prototypes and small deployments. For production with important data, use a persistent Render disk or migrate the database layer to PostgreSQL. Keep backups of your SQLite database.
-
-## Important
-
-Do not commit `.env` or secrets to GitHub.
+SQLite is excellent for learning, demos and small deployments. On Render, the normal web-service filesystem is not persistent across all redeploy/restart scenarios. For production student data, migrate the database to PostgreSQL and store uploaded media in object storage.
