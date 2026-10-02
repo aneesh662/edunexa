@@ -1,57 +1,52 @@
-# Online Tutorial Application — Flask + SQLite
+# LearnHub - Flask + SQLite + GitHub + Render
 
-A responsive learning platform with:
-- Student registration/login
-- Instructor/admin login
-- Course library and search/filter
-- Course enrollment
-- Video lesson player
-- Lesson completion and progress tracking
-- Quizzes and results
-- Admin/instructor course creation
+Deployment-ready online tutorial application.
+
+## Features
+- Student registration and login
+- Admin and instructor login
+- Admin full user control: create, edit, password reset and delete students/instructors/admins
+- Course creation and deletion
 - Lesson creation
+- YouTube lesson video links
+- Google Drive PDF/resource links
+- Course enrollment
+- Student dashboard
+- Lesson completion and progress
+- Quizzes
 - SQLite database
-- Render deployment configuration
+- Render health check
 
-## Run locally
+## Demo accounts
+Admin: admin@example.com / admin123
+Student: student@example.com / student123
+Instructor: instructor@example.com / instructor123
 
-```bash
+## Local Windows setup
+```bat
 python -m venv venv
-# Windows: venv\Scripts\activate
-# macOS/Linux: source venv/bin/activate
+venv\\Scripts\\activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 python app.py
 ```
+Open http://127.0.0.1:5000
+Health: http://127.0.0.1:5000/health
 
-Open: http://127.0.0.1:5000
+## GitHub root
+The repository root must directly contain app.py, requirements.txt, render.yaml, Procfile, templates/ and static/.
 
-## Demo accounts
+## Render
+Runtime: Python
+Build Command: `pip install -r requirements.txt`
+Start Command: `gunicorn app:app`
+Root Directory: blank if app.py is in repository root.
 
-Admin:
-admin@example.com / admin123
+## YouTube
+Paste a normal YouTube watch URL, youtu.be URL, or embed URL into the lesson's YouTube URL field. The learning page converts standard links into an embed player.
 
-Student:
-student@example.com / student123
+## Google Drive PDF
+Upload the PDF to Google Drive, set the desired sharing permission (usually Viewer), copy the sharing link, and paste it into the lesson's Google Drive PDF link field. The PDF remains hosted by Google Drive.
 
-Instructor:
-instructor@example.com / instructor123
-
-Change these passwords before production use.
-
-## SQLite database
-
-The database is automatically created as `tutorial.db` in the project root after the first run.
-
-## GitHub + Render
-
-1. Create a GitHub repository.
-2. Upload all project files.
-3. On Render choose New > Web Service.
-4. Connect the GitHub repository.
-5. Build command: `pip install -r requirements.txt`
-6. Start command: `gunicorn app:app`
-7. Add `SECRET_KEY` as a secret environment variable.
-
-### Important production note
-
-SQLite is excellent for learning, demos and small deployments. On Render, the normal web-service filesystem is not persistent across all redeploy/restart scenarios. For production student data, migrate the database to PostgreSQL and store uploaded media in object storage.
+## SQLite
+SQLite is included as requested. For important production data, use persistent storage or migrate to PostgreSQL because an ephemeral deployment filesystem can lose local SQLite data on redeploy/restart.

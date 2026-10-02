@@ -29,7 +29,7 @@ def init_db():
     );
     CREATE TABLE IF NOT EXISTS lessons(
       id INTEGER PRIMARY KEY AUTOINCREMENT, course_id INTEGER NOT NULL, title TEXT NOT NULL,
-      content TEXT, video_url TEXT, duration INTEGER DEFAULT 0, position INTEGER DEFAULT 0,
+      content TEXT, video_url TEXT, pdf_url TEXT DEFAULT '', duration INTEGER DEFAULT 0, position INTEGER DEFAULT 0,
       FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS enrollments(
@@ -60,6 +60,9 @@ def init_db():
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(lessons)").fetchall()]
+    if "pdf_url" not in cols:
+        conn.execute("ALTER TABLE lessons ADD COLUMN pdf_url TEXT DEFAULT ''")
     # Seed admin, demo student, instructor and courses only once
     if conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 0:
         now = datetime.now().isoformat(timespec="seconds")
@@ -143,7 +146,7 @@ def role_required(*roles):
 
 @app.context_processor
 def globals():
-    return {"current_user": session.get("name"), "role": session.get("role")}
+    return {"current_user": session.get("name"), "current_user_id": session.get("user_id"), "role": session.get("role")}
 
 @app.route("/")
 def index():
@@ -238,7 +241,7 @@ def learn(course_id,lesson_id):
     if not conn.execute("SELECT 1 FROM enrollments WHERE user_id=? AND course_id=?",(session["user_id"],course_id)).fetchone():
         conn.close(); return redirect(url_for("course",course_id=course_id))
     c=conn.execute("SELECT * FROM courses WHERE id=?",(course_id,)).fetchone()
-    lessons=conn.execute("SELECT * FROM lessons WHERE course_id=? ORDER BY position",(course_id,)).fetchall()
+    lessons=conn.execute("SELECT l.*, COALESCE(p.completed,0) completed FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=? WHERE l.course_id=? ORDER BY l.position",(session["user_id"],course_id)).fetchall()
     lesson=conn.execute("SELECT * FROM lessons WHERE id=? AND course_id=?",(lesson_id,course_id)).fetchone()
     done={r["lesson_id"] for r in conn.execute("SELECT lesson_id FROM progress WHERE user_id=? AND completed=1",(session["user_id"],)).fetchall()}
     conn.close()
@@ -253,10 +256,6 @@ def complete(lesson_id):
         conn.execute("""INSERT INTO progress(user_id,lesson_id,completed,completed_at) VALUES(?,?,1,?)
                         ON CONFLICT(user_id,lesson_id) DO UPDATE SET completed=1,completed_at=excluded.completed_at""",
                      (session["user_id"],lesson_id,datetime.now().isoformat(timespec="seconds")))
-        # Backward-compatible migration for existing SQLite databases.
-    cols = [r["name"] for r in conn.execute("PRAGMA table_info(lessons)").fetchall()]
-    if "pdf_url" not in cols:
-        conn.execute("ALTER TABLE lessons ADD COLUMN pdf_url TEXT DEFAULT ''")
     conn.commit()
     conn.close()
     return redirect(request.referrer or url_for("dashboard"))
@@ -281,44 +280,91 @@ def quiz(quiz_id):
 @role_required("admin","instructor")
 def admin():
     conn=db()
+    if session.get("role") == "admin":
+        users=conn.execute("SELECT id,name,email,role,created_at FROM users ORDER BY id DESC").fetchall()
+        courses=conn.execute("""SELECT c.*,u.name instructor,
+            (SELECT COUNT(*) FROM lessons l WHERE l.course_id=c.id) lesson_count
+            FROM courses c LEFT JOIN users u ON u.id=c.instructor_id ORDER BY c.id DESC""").fetchall()
+    else:
+        users=[]
+        courses=conn.execute("""SELECT c.*,u.name instructor,
+            (SELECT COUNT(*) FROM lessons l WHERE l.course_id=c.id) lesson_count
+            FROM courses c LEFT JOIN users u ON u.id=c.instructor_id
+            WHERE c.instructor_id=? ORDER BY c.id DESC""",(session["user_id"],)).fetchall()
     data={"users":conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"],
           "courses":conn.execute("SELECT COUNT(*) c FROM courses").fetchone()["c"],
           "lessons":conn.execute("SELECT COUNT(*) c FROM lessons").fetchone()["c"],
           "enrollments":conn.execute("SELECT COUNT(*) c FROM enrollments").fetchone()["c"]}
-    courses=conn.execute("SELECT c.*,u.name instructor FROM courses c LEFT JOIN users u ON u.id=c.instructor_id ORDER BY c.id DESC").fetchall()
     conn.close()
-    return render_template("admin.html",data=data,courses=courses)
+    return render_template("admin.html",data=data,courses=courses,users=users)
+
+@app.post("/admin/user/create")
+@login_required
+@role_required("admin")
+def create_user():
+    name=request.form.get("name","").strip(); email=request.form.get("email","").strip().lower(); pw=request.form.get("password","")
+    role=request.form.get("role","student")
+    if role not in ("student","instructor","admin"): role="student"
+    if not name or not email or len(pw)<6:
+        flash("Name, email and password (minimum 6 characters) are required.","danger"); return redirect(url_for("admin"))
+    conn=db()
+    try:
+        conn.execute("INSERT INTO users(name,email,password,role,created_at) VALUES(?,?,?,?,?)",(name,email,generate_password_hash(pw),role,datetime.now().isoformat(timespec="seconds")))
+        conn.commit(); flash("User created.","success")
+    except sqlite3.IntegrityError: flash("Email already exists.","danger")
+    finally: conn.close()
+    return redirect(url_for("admin"))
+
+@app.post("/admin/user/<int:user_id>/edit")
+@login_required
+@role_required("admin")
+def edit_user(user_id):
+    name=request.form.get("name","").strip(); email=request.form.get("email","").strip().lower(); role=request.form.get("role","student"); pw=request.form.get("password","")
+    if role not in ("student","instructor","admin"): role="student"
+    conn=db()
+    try:
+        if pw: conn.execute("UPDATE users SET name=?,email=?,role=?,password=? WHERE id=?",(name,email,role,generate_password_hash(pw),user_id))
+        else: conn.execute("UPDATE users SET name=?,email=?,role=? WHERE id=?",(name,email,role,user_id))
+        conn.commit(); flash("User updated.","success")
+    except sqlite3.IntegrityError: flash("Email already exists.","danger")
+    finally: conn.close()
+    return redirect(url_for("admin"))
+
+@app.post("/admin/user/<int:user_id>/delete")
+@login_required
+@role_required("admin")
+def delete_user(user_id):
+    if user_id==session.get("user_id"):
+        flash("You cannot delete your own account.","warning"); return redirect(url_for("admin"))
+    conn=db(); conn.execute("DELETE FROM users WHERE id=?",(user_id,)); conn.commit(); conn.close()
+    flash("User deleted.","success"); return redirect(url_for("admin"))
 
 @app.post("/admin/course/create")
 @login_required
 @role_required("admin","instructor")
 def create_course():
-    title=request.form["title"].strip(); category=request.form["category"].strip()
-    conn=db()
+    conn=db(); now=datetime.now().isoformat(timespec="seconds")
     conn.execute("""INSERT INTO courses(title,description,category,level,thumbnail,instructor_id,created_at)
-                    VALUES(?,?,?,?,?,?,?)""",
-                 (title,request.form.get("description",""),category,request.form.get("level","Beginner"),
-                  request.form.get("thumbnail","https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800"),
-                  session["user_id"],datetime.now().isoformat(timespec="seconds")))
+                    VALUES(?,?,?,?,?,?,?)""",(request.form.get("title",""),request.form.get("description",""),request.form.get("category","General"),request.form.get("level","Beginner"),request.form.get("thumbnail",""),session["user_id"],now))
     conn.commit(); conn.close(); flash("Course created.","success"); return redirect(url_for("admin"))
 
 @app.post("/admin/course/<int:course_id>/lesson")
 @login_required
 @role_required("admin","instructor")
 def create_lesson(course_id):
-    conn=db()
-    pos=(conn.execute("SELECT COALESCE(MAX(position),0)+1 p FROM lessons WHERE course_id=?",(course_id,)).fetchone()["p"])
-    conn.execute("""INSERT INTO lessons(course_id,title,content,video_url,duration,position) VALUES(?,?,?,?,?,?)""",
-                 (course_id,request.form["title"],request.form.get("content",""),request.form.get("video_url",""),
-                  int(request.form.get("duration",0) or 0),pos))
+    conn=db(); course=conn.execute("SELECT * FROM courses WHERE id=?",(course_id,)).fetchone()
+    if not course: conn.close(); return "Course not found",404
+    if session.get("role")=="instructor" and course["instructor_id"]!=session["user_id"]:
+        conn.close(); return "Forbidden",403
+    pos=conn.execute("SELECT COALESCE(MAX(position),0)+1 p FROM lessons WHERE course_id=?",(course_id,)).fetchone()["p"]
+    conn.execute("""INSERT INTO lessons(course_id,title,content,video_url,pdf_url,duration,position) VALUES(?,?,?,?,?,?,?)""",(course_id,request.form.get("title",""),request.form.get("content",request.form.get("description","")),request.form.get("video_url",""),request.form.get("pdf_url",""),int(request.form.get("duration",0) or 0),pos))
     conn.commit(); conn.close(); flash("Lesson added.","success"); return redirect(url_for("admin"))
 
 @app.post("/admin/course/<int:course_id>/delete")
 @login_required
 @role_required("admin")
 def delete_course(course_id):
-    conn=db(); conn.execute("DELETE FROM courses WHERE id=?",(course_id,)); conn.commit(); conn.close()
-    flash("Course deleted.","success"); return redirect(url_for("admin"))
+    conn=db(); conn.execute("DELETE FROM courses WHERE id=?",(course_id,)); conn.commit(); conn.close(); flash("Course deleted.","success"); return redirect(url_for("admin"))
 
 @app.route("/api/course/<int:course_id>/progress")
 @login_required
@@ -329,6 +375,18 @@ def progress_api(course_id):
                          WHERE p.user_id=? AND l.course_id=? AND p.completed=1""",(session["user_id"],course_id)).fetchone()["c"]
     conn.close(); return jsonify({"total":total,"completed":done,"percent":round(done/total*100) if total else 0})
 
+@app.get("/health")
+def health():
+    try:
+        conn=db()
+        conn.execute("SELECT 1")
+        conn.close()
+        return {"status":"ok","database":"sqlite"}, 200
+    except Exception as exc:
+        app.logger.exception("Health check failed")
+        return {"status":"error","message":str(exc)}, 500
+
+init_db()
+
 if __name__=="__main__":
-    init_db()
     app.run(host="0.0.0.0",port=int(os.environ.get("PORT",5000)),debug=True)
