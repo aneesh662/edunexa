@@ -328,6 +328,55 @@ def create_course():
                     VALUES(?,?,?,?,?,?,?)""",(request.form.get("title",""),request.form.get("description",""),request.form.get("category","General"),request.form.get("level","Beginner"),request.form.get("thumbnail",""),session["user_id"],now))
     conn.commit(); conn.close(); flash("Course created.","success"); return redirect(url_for("admin"))
 
+@app.post("/admin/course/<int:course_id>/edit")
+@login_required
+@role_required("admin","instructor")
+def edit_course(course_id):
+    conn = db()
+    course = conn.execute("SELECT * FROM courses WHERE id=?", (course_id,)).fetchone()
+    if not course:
+        conn.close()
+        return "Course not found", 404
+    if session.get("role") == "instructor" and course["instructor_id"] != session["user_id"]:
+        conn.close()
+        return "Forbidden", 403
+
+    title = request.form.get("title", "").strip()
+    description = request.form.get("description", "").strip()
+    category = request.form.get("category", "General").strip() or "General"
+    level = request.form.get("level", "Beginner").strip() or "Beginner"
+    thumbnail = request.form.get("thumbnail", "").strip()
+    published = 1 if request.form.get("published") == "1" else 0
+
+    if not title or not description:
+        conn.close()
+        flash("Course title and description are required.", "danger")
+        return redirect(url_for("admin"))
+
+    instructor_id = course["instructor_id"]
+    if session.get("role") == "admin":
+        raw_instructor = request.form.get("instructor_id", "").strip()
+        if raw_instructor:
+            try:
+                candidate = int(raw_instructor)
+                exists = conn.execute("SELECT id FROM users WHERE id=? AND role='instructor'", (candidate,)).fetchone()
+                instructor_id = candidate if exists else None
+            except ValueError:
+                instructor_id = None
+        else:
+            instructor_id = None
+
+    conn.execute(
+        """UPDATE courses
+           SET title=?, description=?, category=?, level=?, thumbnail=?, instructor_id=?, published=?
+           WHERE id=?""",
+        (title, description, category, level, thumbnail, instructor_id, published, course_id)
+    )
+    conn.commit()
+    conn.close()
+    flash("Course updated successfully.", "success")
+    return redirect(url_for("admin"))
+
 @app.post("/admin/course/<int:course_id>/lesson")
 @login_required
 @role_required("admin","instructor")
