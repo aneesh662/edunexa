@@ -1,0 +1,3 @@
+{% extends "base.html" %}{% block title %}{{quiz.title}}{% endblock %}{% block content %}
+<div class="container py-5" style="max-width:850px"><h1 class="fw-bold">{{quiz.title}}</h1><p class="text-secondary">Choose the best answer for each question.</p><form method="post">{% for q in questions %}<div class="card border-0 shadow-sm mb-4"><div class="card-body p-4"><h5>{{loop.index}}. {{q.question}}</h5>{% for key,label in [('A',q.option_a),('B',q.option_b),('C',q.option_c),('D',q.option_d)] %}<label class="option"><input type="radio" name="{{q.id}}" value="{{key}}" required> <span>{{key}}. {{label}}</span></label>{% endfor %}</div></div>{% endfor %}<button class="btn btn-primary btn-lg">Submit Quiz</button></form></div>
+{% endblock %}

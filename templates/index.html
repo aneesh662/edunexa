@@ -1,0 +1,11 @@
+{% extends "base.html" %}{% block title %}LearnHub — Learn Anything{% endblock %}{% block content %}
+<section class="hero"><div class="container py-5"><div class="row align-items-center g-5"><div class="col-lg-7">
+<span class="badge bg-primary-subtle text-primary mb-3">LEARN • PRACTICE • GROW</span>
+<h1 class="display-4 fw-bold">Build skills that move your career forward.</h1>
+<p class="lead text-secondary">Practical online tutorials with video lessons, quizzes and progress tracking.</p>
+<div class="d-flex gap-2"><a class="btn btn-primary btn-lg" href="{{ url_for('courses') }}">Explore Courses</a><a class="btn btn-outline-dark btn-lg" href="{{ url_for('register') }}">Start Learning</a></div>
+</div><div class="col-lg-5"><div class="hero-card"><i class="bi bi-play-circle-fill display-1 text-primary"></i><h4 class="mt-3">Learn at your pace</h4><p class="text-secondary mb-0">Continue lessons from any device.</p></div></div></div></div></section>
+<section class="container py-5"><div class="d-flex justify-content-between align-items-end mb-4"><div><h2 class="fw-bold">Popular courses</h2><p class="text-secondary mb-0">Start with practical, job-ready topics.</p></div><a href="{{url_for('courses')}}">View all</a></div>
+<div class="row g-4">{% for c in courses %}<div class="col-md-6 col-lg-3"><div class="card course-card h-100">
+<img src="{{c.thumbnail}}" class="card-img-top"><div class="card-body"><span class="badge text-bg-light">{{c.category}}</span><h5 class="mt-2">{{c.title}}</h5><p class="small text-secondary">{{c.description[:90]}}...</p><a href="{{url_for('course',course_id=c.id)}}" class="btn btn-outline-primary w-100">View Course</a></div></div></div>{% endfor %}</div></section>
+{% endblock %}
