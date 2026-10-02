@@ -1,4 +1,14 @@
-{% extends "base.html" %}{% block title %}Create Account{% endblock %}{% block content %}
-<div class="auth-wrap"><div class="auth-card"><h2 class="fw-bold">Create your account</h2><p class="text-secondary">Your learning journey starts here.</p>
-<form method="post"><label class="form-label">Full name</label><input class="form-control mb-3" name="name" required><label class="form-label">Email</label><input class="form-control mb-3" name="email" type="email" required><label class="form-label">Password</label><input class="form-control mb-4" name="password" type="password" minlength="6" required><button class="btn btn-primary w-100">Create account</button></form></div></div>
+{% extends 'base.html' %}
+{% block title %}Register{% endblock %}
+{% block content %}
+<div class="container py-5"><div class="row justify-content-center"><div class="col-md-6 col-lg-5">
+<div class="card shadow-sm border-0"><div class="card-body p-4">
+<h2 class="fw-bold">Create account</h2><p class="text-secondary">Start your learning journey.</p>
+<form method="post">
+<label class="form-label">Name</label><input class="form-control mb-3" name="name" required>
+<label class="form-label">Email</label><input class="form-control mb-3" type="email" name="email" required>
+<label class="form-label">Password</label><input class="form-control mb-3" type="password" name="password" minlength="6" required>
+<button class="btn btn-primary w-100">Register</button>
+</form>
+</div></div></div></div></div>
 {% endblock %}

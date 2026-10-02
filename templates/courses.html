@@ -1,5 +1,19 @@
-{% extends "base.html" %}{% block title %}Courses{% endblock %}{% block content %}
-<div class="container py-5"><div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-4"><div><h1 class="fw-bold">Course Library</h1><p class="text-secondary">Find your next skill.</p></div>
-<form class="d-flex gap-2"><input class="form-control" name="q" value="{{q}}" placeholder="Search courses..."><select class="form-select" name="category"><option value="">All categories</option>{% for x in categories %}<option {% if cat==x.category %}selected{% endif %}>{{x.category}}</option>{% endfor %}</select><button class="btn btn-primary">Search</button></form></div>
-<div class="row g-4">{% for c in courses %}<div class="col-md-6 col-lg-4"><div class="card course-card h-100"><img src="{{c.thumbnail}}" class="card-img-top"><div class="card-body"><span class="badge bg-primary-subtle text-primary">{{c.level}}</span><h5 class="mt-2">{{c.title}}</h5><p class="text-secondary small">{{c.description}}</p><div class="small mb-3"><i class="bi bi-tag"></i> {{c.category}}</div><a class="btn btn-primary w-100" href="{{url_for('course',course_id=c.id)}}">View course</a></div></div></div>{% else %}<div class="col-12 text-center py-5">No courses found.</div>{% endfor %}</div></div>
+{% extends 'base.html' %}
+{% block title %}Courses{% endblock %}
+{% block content %}
+<div class="container py-5">
+<h1 class="fw-bold">Course Library</h1>
+<form class="row g-2 my-4">
+<div class="col-md-7"><input class="form-control" name="q" value="{{ q }}" placeholder="Search courses..."></div>
+<div class="col-md-3"><select class="form-select" name="category"><option value="">All categories</option>{% for x in categories %}<option {% if category==x.category %}selected{% endif %}>{{ x.category }}</option>{% endfor %}</select></div>
+<div class="col-md-2"><button class="btn btn-dark w-100">Search</button></div>
+</form>
+<div class="row g-4">
+{% for c in courses %}
+<div class="col-md-6 col-lg-4"><div class="card h-100 shadow-sm">
+{% if c.thumbnail %}<img src="{{ c.thumbnail }}" class="card-img-top course-img" alt="{{ c.title }}">{% endif %}
+<div class="card-body"><span class="badge text-bg-light border">{{ c.category }}</span><h5 class="mt-2 fw-bold">{{ c.title }}</h5><p class="text-secondary">{{ c.description }}</p><small class="text-muted">{{ c.lesson_count }} lessons • {{ c.level }}</small><a href="{{ url_for('course_detail',course_id=c.id) }}" class="btn btn-primary w-100 mt-3">View Course</a></div>
+</div></div>
+{% else %}<div class="col-12"><div class="alert alert-info">No courses found.</div></div>{% endfor %}
+</div></div>
 {% endblock %}

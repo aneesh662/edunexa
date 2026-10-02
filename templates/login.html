@@ -1,5 +1,14 @@
-{% extends "base.html" %}{% block title %}Login{% endblock %}{% block content %}
-<div class="auth-wrap"><div class="auth-card"><div class="text-center mb-4"><i class="bi bi-mortarboard-fill fs-1 text-primary"></i><h2 class="fw-bold mt-2">Welcome back</h2><p class="text-secondary">Sign in to continue learning.</p></div>
-<form method="post"><label class="form-label">Email</label><input class="form-control mb-3" name="email" type="email" required><label class="form-label">Password</label><input class="form-control mb-4" name="password" type="password" required><button class="btn btn-primary w-100 btn-lg">Sign in</button></form>
-<p class="text-center mt-4 mb-0">New learner? <a href="{{url_for('register')}}">Create account</a></p></div></div>
+{% extends 'base.html' %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<div class="container py-5"><div class="row justify-content-center"><div class="col-md-6 col-lg-5">
+<div class="card shadow-sm border-0"><div class="card-body p-4">
+<h2 class="fw-bold mb-1">Welcome back</h2><p class="text-secondary">Sign in to continue learning.</p>
+<form method="post">
+<label class="form-label">Email</label><input class="form-control mb-3" type="email" name="email" required>
+<label class="form-label">Password</label><input class="form-control mb-3" type="password" name="password" required>
+<button class="btn btn-primary w-100">Login</button>
+</form>
+<hr><div class="small text-muted">Demo student: student@example.com / student123</div>
+</div></div></div></div></div>
 {% endblock %}

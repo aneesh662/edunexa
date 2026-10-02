@@ -1,5 +1,20 @@
-{% extends "base.html" %}{% block title %}{{lesson.title}} — {{course.title}}{% endblock %}{% block content %}
-<div class="container-fluid learning-shell"><div class="row"><aside class="col-lg-3 lesson-sidebar"><a href="{{url_for('course',course_id=course.id)}}" class="text-decoration-none">&larr; Back to course</a><h5 class="mt-4">{{course.title}}</h5>{% for l in lessons %}<a class="lesson-link {% if l.id==lesson.id %}active{% endif %}" href="{{url_for('learn',course_id=course.id,lesson_id=l.id)}}"><span>{{loop.index}}</span><div>{{l.title}}<small>{{l.duration}} min {% if l.id in done %}✓{% endif %}</small></div></a>{% endfor %}</aside>
-<main class="col-lg-9 p-4 p-lg-5"><div class="video-wrap">{% if lesson.video_url %}<iframe src="{{lesson.video_url}}" title="Lesson video" allowfullscreen></iframe>{% else %}<div class="video-placeholder"><i class="bi bi-play-circle"></i></div>{% endif %}</div><div class="d-flex justify-content-between align-items-center mt-4"><div><span class="text-secondary">Lesson {{lesson.position}}</span><h2 class="fw-bold">{{lesson.title}}</h2></div><form method="post" action="{{url_for('complete',lesson_id=lesson.id)}}"><button class="btn btn-success"><i class="bi bi-check2"></i> Mark complete</button></form></div><div class="content-box mt-4"><h5>Lesson notes</h5><p>{{lesson.content}}</p></div>
-{% if loop is not defined %}{% endif %}</main></div></div>
+{% extends 'base.html' %}
+{% block title %}Learning - {{ course.title }}{% endblock %}
+{% block content %}
+<div class="container py-5"><div class="row g-4">
+<div class="col-lg-8"><h1 class="fw-bold">{{ course.title }}</h1>
+{% for l in lessons %}
+<div class="card shadow-sm mb-3"><div class="card-body">
+<div class="d-flex justify-content-between"><h5 class="fw-bold">{{ loop.index }}. {{ l.title }}</h5>{% if l.completed %}<span class="badge text-bg-success">Completed</span>{% endif %}</div>
+<p class="text-secondary">{{ l.description }}</p>
+{% if l.video_url %}
+<div class="ratio ratio-16x9 mb-3"><iframe src="{{ l.video_url }}" title="{{ l.title }}" allowfullscreen></iframe></div>
+{% else %}<div class="lesson-placeholder mb-3">Lesson content / video can be added by the instructor.</div>{% endif %}
+{% if not l.completed %}<form method="post" action="{{ url_for('complete_lesson',lesson_id=l.id) }}"><button class="btn btn-success">Mark Complete</button></form>{% endif %}
+</div></div>
+{% else %}<div class="alert alert-info">No lessons available yet.</div>{% endfor %}
+{% if quiz %}<a class="btn btn-dark btn-lg mt-2" href="{{ url_for('quiz',quiz_id=quiz.id) }}">Take Course Quiz</a>{% endif %}
+</div>
+<div class="col-lg-4"><div class="card shadow-sm sticky-lg-top" style="top:90px"><div class="card-body"><h5 class="fw-bold">Course Contents</h5>{% for l in lessons %}<div class="py-2 border-bottom small">{% if l.completed %}✓{% else %}○{% endif %} {{ l.title }}</div>{% endfor %}</div></div></div>
+</div></div>
 {% endblock %}

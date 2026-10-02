@@ -1,9 +1,11 @@
 services:
   - type: web
-    name: online-tutorial-app
+    name: online-tutorial-flask
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
+    healthCheckPath: /health
     envVars:
       - key: SECRET_KEY
         generateValue: true
