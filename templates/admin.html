@@ -1,172 +1,87 @@
 {% extends 'base.html' %}
 {% block title %}Manage Platform{% endblock %}
 {% block content %}
-<div class="container py-5">
-  <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2 mb-4">
-    <div>
-      <h1 class="fw-bold mb-1">Manage Platform</h1>
-      <p class="text-secondary mb-0">Create and manage users, courses, lessons, videos and PDF resources.</p>
-    </div>
+<div class="container-fluid container-xl py-4 py-md-5">
+  <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+    <div><h1 class="fw-bold mb-1">Manage Platform</h1><p class="text-secondary mb-0">Manage users, courses and student course access.</p></div>
+    <span class="badge rounded-pill text-bg-primary px-3 py-2">{{ role|title }} Panel</span>
   </div>
 
   <div class="row g-3 mb-4">
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="small text-secondary">Users</div><div class="fs-3 fw-bold">{{data.users}}</div></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="small text-secondary">Courses</div><div class="fs-3 fw-bold">{{data.courses}}</div></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="small text-secondary">Lessons</div><div class="fs-3 fw-bold">{{data.lessons}}</div></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="small text-secondary">Enrollments</div><div class="fs-3 fw-bold">{{data.enrollments}}</div></div></div></div>
+    {% for label,value in [('Users',data.users),('Courses',data.courses),('Lessons',data.lessons),('Enrollments',data.enrollments)] %}
+    <div class="col-6 col-lg-3"><div class="card border-0 shadow-sm h-100 stat-card"><div><div class="small text-secondary">{{label}}</div><div class="fs-3 fw-bold">{{value}}</div></div></div></div>
+    {% endfor %}
   </div>
 
   {% if role == 'admin' %}
   <div class="card border-0 shadow-sm mb-4">
-    <div class="card-body p-4">
+    <div class="card-body p-3 p-md-4">
       <h4 class="mb-3">Create User</h4>
       <form method="post" action="{{url_for('create_user')}}" class="row g-2">
-        <div class="col-md-3"><input class="form-control" name="name" placeholder="Full name" required></div>
-        <div class="col-md-3"><input class="form-control" name="email" type="email" placeholder="Email" required></div>
-        <div class="col-md-2"><input class="form-control" name="password" type="password" minlength="6" placeholder="Password" required></div>
-        <div class="col-md-2"><select class="form-select" name="role"><option value="student">Student</option><option value="instructor">Instructor</option><option value="admin">Admin</option></select></div>
-        <div class="col-md-2"><button class="btn btn-primary w-100">Create User</button></div>
+        <div class="col-12 col-md-3"><input class="form-control" name="name" placeholder="Full name" required></div>
+        <div class="col-12 col-md-3"><input class="form-control" name="email" type="email" placeholder="Email" required></div>
+        <div class="col-12 col-sm-6 col-md-2"><input class="form-control" name="password" type="password" minlength="6" placeholder="Password" required></div>
+        <div class="col-12 col-sm-6 col-md-2"><select class="form-select" name="role"><option value="student">Student</option><option value="instructor">Instructor</option><option value="admin">Admin</option></select></div>
+        <div class="col-12 col-md-2"><button class="btn btn-primary w-100">Create User</button></div>
       </form>
     </div>
   </div>
 
-  <div class="card border-0 shadow-sm mb-5">
-    <div class="card-body p-4">
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-3 p-md-4">
       <h4 class="mb-3">User Management</h4>
-      <div class="table-responsive">
+      <div class="table-responsive mobile-table">
         <table class="table align-middle mb-0">
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Created</th><th class="text-end">Actions</th></tr></thead>
-          <tbody>
-          {% for u in users %}
-            <tr>
-              <td class="fw-semibold">{{u.name}}</td><td>{{u.email}}</td><td><span class="badge text-bg-light">{{u.role|title}}</span></td>
-              <td class="small text-secondary">{{u.created_at}}</td>
-              <td class="text-end">
-                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editUser{{u.id}}">Edit</button>
-                {% if u.id != current_user_id %}
-                <form class="d-inline" method="post" action="{{url_for('delete_user',user_id=u.id)}}" onsubmit="return confirm('Delete this user permanently?')"><button class="btn btn-sm btn-outline-danger">Delete</button></form>
-                {% endif %}
-              </td>
-            </tr>
-            <div class="modal fade" id="editUser{{u.id}}" tabindex="-1">
-              <div class="modal-dialog"><div class="modal-content">
-                <form method="post" action="{{url_for('edit_user',user_id=u.id)}}">
-                  <div class="modal-header"><h5 class="modal-title">Edit User</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                  <div class="modal-body">
-                    <input class="form-control mb-2" name="name" value="{{u.name}}" required>
-                    <input class="form-control mb-2" name="email" type="email" value="{{u.email}}" required>
-                    <select class="form-select mb-2" name="role">{% for r in ['student','instructor','admin'] %}<option value="{{r}}" {% if u.role==r %}selected{% endif %}>{{r|title}}</option>{% endfor %}</select>
-                    <input class="form-control" name="password" type="password" minlength="6" placeholder="New password (leave blank to keep current)">
-                  </div>
-                  <div class="modal-footer"><button class="btn btn-primary">Save Changes</button></div>
-                </form>
-              </div></div>
-            </div>
-          {% endfor %}
-          </tbody>
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Assigned</th><th>Created</th><th class="text-end">Actions</th></tr></thead>
+          <tbody>{% for u in users %}
+            <tr><td class="fw-semibold">{{u.name}}</td><td>{{u.email}}</td><td><span class="badge text-bg-light">{{u.role|title}}</span></td><td>{{u.assigned_count}}</td><td class="small text-secondary">{{u.created_at}}</td>
+            <td class="text-md-end text-nowrap"><button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editUser{{u.id}}">Edit</button> {% if u.id != current_user_id %}<form class="d-inline" method="post" action="{{url_for('delete_user',user_id=u.id)}}" onsubmit="return confirm('Delete this user permanently?')"><button class="btn btn-sm btn-outline-danger">Delete</button></form>{% endif %}</td></tr>
+            <div class="modal fade" id="editUser{{u.id}}" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><form method="post" action="{{url_for('edit_user',user_id=u.id)}}">
+              <div class="modal-header"><h5 class="modal-title">Edit User</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+              <div class="modal-body"><input class="form-control mb-2" name="name" value="{{u.name}}" required><input class="form-control mb-2" name="email" type="email" value="{{u.email}}" required><select class="form-select mb-2" name="role">{% for r in ['student','instructor','admin'] %}<option value="{{r}}" {% if u.role==r %}selected{% endif %}>{{r|title}}</option>{% endfor %}</select><input class="form-control" name="password" type="password" minlength="6" placeholder="New password (optional)"></div>
+              <div class="modal-footer"><button class="btn btn-primary">Save Changes</button></div></form></div></div></div>
+          {% else %}<tr><td colspan="6" class="text-center text-secondary py-4">No users found.</td></tr>{% endfor %}</tbody>
         </table>
       </div>
     </div>
   </div>
-  {% if role == 'admin' %}
-  <div class="card border-0 shadow-sm mb-5">
-    <div class="card-body p-4">
-      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-        <div><h4 class="mb-1">Assign Courses to Students</h4><p class="text-secondary mb-0">Students can access only the courses assigned to their account.</p></div>
-      </div>
-      {% for student in users if student.role == 'student' %}
-      <div class="border rounded-3 p-3 mb-3">
+
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-3 p-md-4">
+      <h4 class="mb-1">Assign Courses to Students</h4><p class="text-secondary">A student can access only courses assigned here.</p>
+      {% set students = users|selectattr('role','equalto','student')|list %}
+      {% if students %}{% for student in students %}
+      <div class="assignment-card border rounded-3 p-3 mb-3">
         <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
           <div><strong>{{student.name}}</strong><div class="small text-secondary">{{student.email}} • {{student.assigned_count}} assigned course(s)</div></div>
-          <form method="post" action="{{url_for('assign_course',user_id=student.id)}}" class="d-flex gap-2" style="min-width:min(100%,480px)">
-            <select class="form-select" name="course_id" required><option value="">Select course to assign</option>{% for c in courses %}<option value="{{c.id}}">{{c.title}}</option>{% endfor %}</select>
-            <button class="btn btn-primary text-nowrap"><i class="bi bi-plus-circle"></i> Assign</button>
+          <form method="post" action="{{url_for('assign_course',user_id=student.id)}}" class="assign-form">
+            <select class="form-select" name="course_id" required><option value="">Select course</option>{% for c in courses %}<option value="{{c.id}}">{{c.title}}</option>{% endfor %}</select><button class="btn btn-primary text-nowrap">Assign</button>
           </form>
         </div>
-        <div class="d-flex flex-wrap gap-2 mt-3">
-          {% for a in assignments if a.user_id == student.id %}
-            <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2 p-2">{{a.title}}
-              <form method="post" action="{{url_for('remove_course_assignment',user_id=student.id,course_id=a.course_id)}}" class="d-inline" onsubmit="return confirm('Remove this course from {{student.name}}?')"><button type="submit" class="btn btn-sm p-0 text-danger border-0 bg-transparent" title="Remove">&times;</button></form>
-            </span>
-          {% else %}<span class="small text-secondary">No courses assigned yet.</span>{% endfor %}
-        </div>
-      </div>
-      {% else %}<div class="alert alert-info mb-0">Create a student first, then assign courses here.</div>{% endfor %}
+        <div class="d-flex flex-wrap gap-2 mt-3">{% for a in assignments if a.user_id == student.id %}<span class="badge rounded-pill text-bg-light border p-2">{{a.title}} <form method="post" action="{{url_for('remove_course_assignment',user_id=student.id,course_id=a.course_id)}}" class="d-inline"><button type="submit" class="btn btn-sm p-0 text-danger border-0 bg-transparent" title="Remove">&times;</button></form></span>{% else %}<span class="small text-secondary">No courses assigned.</span>{% endfor %}</div>
+      </div>{% endfor %}{% else %}<div class="alert alert-info mb-0">Create a student first, then assign courses.</div>{% endif %}
     </div>
   </div>
   {% endif %}
 
   <div class="card border-0 shadow-sm mb-4">
-    <div class="card-body p-4">
-      <h4 class="mb-3">Create Course</h4>
+    <div class="card-body p-3 p-md-4"><h4 class="mb-3">Create Course</h4>
       <form method="post" action="{{url_for('create_course')}}" class="row g-2">
-        <div class="col-md-6"><input class="form-control" name="title" placeholder="Course title" required></div>
-        <div class="col-md-3"><input class="form-control" name="category" value="General" placeholder="Category"></div>
-        <div class="col-md-3"><select class="form-select" name="level"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select></div>
-        <div class="col-md-9"><textarea class="form-control" name="description" rows="3" placeholder="Course description" required></textarea></div>
-        <div class="col-md-3"><input class="form-control" name="thumbnail" placeholder="Thumbnail URL"></div>
-        {% if role == 'admin' %}
-        <div class="col-md-4"><select class="form-select" name="instructor_id"><option value="">No instructor assigned</option>{% for u in users if u.role == 'instructor' %}<option value="{{u.id}}">{{u.name}} — {{u.email}}</option>{% endfor %}</select></div>
-        {% endif %}
-        <div class="col-md-3"><select class="form-select" name="published"><option value="1">Published</option><option value="0">Draft</option></select></div>
-        <div class="col-md-3"><button class="btn btn-primary w-100">Create Course</button></div>
+        <div class="col-12 col-md-6"><input class="form-control" name="title" placeholder="Course title" required></div><div class="col-12 col-sm-6 col-md-3"><input class="form-control" name="category" value="General" placeholder="Category"></div><div class="col-12 col-sm-6 col-md-3"><select class="form-select" name="level"><option>Beginner</option><option>Intermediate</option><option>Advanced</option></select></div>
+        <div class="col-12 col-md-9"><textarea class="form-control" name="description" rows="3" placeholder="Course description" required></textarea></div><div class="col-12 col-md-3"><input class="form-control" name="thumbnail" placeholder="Thumbnail URL"></div>
+        {% if role == 'admin' %}<div class="col-12 col-md-5"><select class="form-select" name="instructor_id"><option value="">No instructor assigned</option>{% for u in users if u.role == 'instructor' %}<option value="{{u.id}}">{{u.name}} — {{u.email}}</option>{% endfor %}</select></div>{% endif %}
+        <div class="col-12 col-sm-6 col-md-3"><select class="form-select" name="published"><option value="1">Published</option><option value="0">Draft</option></select></div><div class="col-12 col-sm-6 col-md-3"><button class="btn btn-primary w-100">Create Course</button></div>
       </form>
     </div>
   </div>
 
   {% for c in courses %}
-  <div class="card border-0 shadow-sm mb-4">
-    <div class="card-body p-4">
-      <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
-        <div>
-          <div class="d-flex align-items-center gap-2 flex-wrap">
-            <h4 class="mb-0">{{c.title}}</h4>
-            {% if c.published %}<span class="badge text-bg-success">Published</span>{% else %}<span class="badge text-bg-secondary">Draft</span>{% endif %}
-          </div>
-          <div class="small text-muted mt-1">{{c.category}} • {{c.level}} • {{c.lesson_count}} lessons • Instructor: {{c.instructor or 'Not assigned'}}</div>
-        </div>
-        <div class="d-flex gap-2 align-items-start">
-          <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#editCourse{{c.id}}"><i class="bi bi-pencil"></i> Edit Course</button>
-          {% if role == 'admin' %}<form method="post" action="{{url_for('delete_course',course_id=c.id)}}" onsubmit="return confirm('Delete this course and all its lessons?')"><button class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i> Delete</button></form>{% endif %}
-        </div>
-      </div>
+  <div class="card border-0 shadow-sm mb-4"><div class="card-body p-3 p-md-4">
+    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3"><div><div class="d-flex align-items-center gap-2 flex-wrap"><h4 class="mb-0">{{c.title}}</h4>{% if c.published %}<span class="badge text-bg-success">Published</span>{% else %}<span class="badge text-bg-secondary">Draft</span>{% endif %}</div><div class="small text-muted mt-1">{{c.category}} • {{c.level}} • {{c.lesson_count}} lessons • {{c.instructor or 'Not assigned'}}</div></div><div class="d-flex flex-wrap gap-2"><button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#editCourse{{c.id}}">Edit Course</button>{% if role == 'admin' %}<form method="post" action="{{url_for('delete_course',course_id=c.id)}}" onsubmit="return confirm('Delete this course and all its lessons?')"><button class="btn btn-outline-danger btn-sm">Delete</button></form>{% endif %}</div></div>
+    <hr><h6>Add Lesson</h6><form method="post" action="{{url_for('create_lesson',course_id=c.id)}}" class="row g-2"><div class="col-12 col-md-4"><input class="form-control" name="title" placeholder="Lesson title" required></div><div class="col-12 col-md-4"><input class="form-control" name="video_url" placeholder="YouTube URL"></div><div class="col-12 col-md-4"><input class="form-control" name="pdf_url" placeholder="Google Drive PDF link"></div><div class="col-6 col-md-3"><input class="form-control" name="duration" type="number" min="0" value="15" placeholder="Minutes"></div><div class="col-6 col-md-2"><input class="form-control" name="lesson_order" type="number" min="1" value="1"></div><div class="col-12 col-md-2"><button class="btn btn-dark w-100">Add Lesson</button></div><div class="col-12 col-md-5"><textarea class="form-control" name="description" rows="1" placeholder="Lesson description"></textarea></div></form>
+  </div></div>
 
-      <hr>
-      <h6>Add Lesson</h6>
-      <form method="post" action="{{url_for('create_lesson',course_id=c.id)}}" class="row g-2">
-        <div class="col-md-4"><input class="form-control" name="title" placeholder="Lesson title" required></div>
-        <div class="col-md-4"><input class="form-control" name="video_url" placeholder="YouTube URL"></div>
-        <div class="col-md-4"><input class="form-control" name="pdf_url" placeholder="Google Drive PDF link"></div>
-        <div class="col-md-3"><input class="form-control" name="duration" type="number" min="0" value="15" placeholder="Minutes"></div>
-        <div class="col-md-2"><input class="form-control" name="lesson_order" type="number" value="1" min="1" placeholder="Order"></div>
-        <div class="col-md-2"><button class="btn btn-dark w-100">Add Lesson</button></div>
-        <div class="col-md-5"><textarea class="form-control" name="description" rows="1" placeholder="Lesson description"></textarea></div>
-      </form>
-      <div class="small text-muted mt-2">YouTube: watch, youtu.be or embed URL. Google Drive: set the PDF sharing permission to Viewer and paste the sharing link.</div>
-    </div>
-  </div>
-
-  <div class="modal fade" id="editCourse{{c.id}}" tabindex="-1">
-    <div class="modal-dialog modal-lg"><div class="modal-content">
-      <form method="post" action="{{url_for('edit_course',course_id=c.id)}}">
-        <div class="modal-header"><h5 class="modal-title">Edit Course — {{c.title}}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-        <div class="modal-body">
-          <div class="row g-3">
-            <div class="col-md-8"><label class="form-label">Course Title</label><input class="form-control" name="title" value="{{c.title}}" required></div>
-            <div class="col-md-4"><label class="form-label">Category</label><input class="form-control" name="category" value="{{c.category or ''}}"></div>
-            <div class="col-md-6"><label class="form-label">Level</label><select class="form-select" name="level"><option {% if c.level=='Beginner' %}selected{% endif %}>Beginner</option><option {% if c.level=='Intermediate' %}selected{% endif %}>Intermediate</option><option {% if c.level=='Advanced' %}selected{% endif %}>Advanced</option></select></div>
-            <div class="col-md-6"><label class="form-label">Status</label><select class="form-select" name="published"><option value="1" {% if c.published %}selected{% endif %}>Published</option><option value="0" {% if not c.published %}selected{% endif %}>Draft / Hidden</option></select></div>
-            <div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="4" required>{{c.description or ''}}</textarea></div>
-            <div class="col-12"><label class="form-label">Thumbnail URL</label><input class="form-control" name="thumbnail" value="{{c.thumbnail or ''}}" placeholder="https://..."></div>
-            {% if role == 'admin' %}
-            <div class="col-12"><label class="form-label">Instructor</label><select class="form-select" name="instructor_id"><option value="">No instructor assigned</option>{% for u in users if u.role == 'instructor' %}<option value="{{u.id}}" {% if c.instructor_id == u.id %}selected{% endif %}>{{u.name}} — {{u.email}}</option>{% endfor %}</select></div>
-            {% endif %}
-          </div>
-        </div>
-        <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary"><i class="bi bi-check2"></i> Save Course Changes</button></div>
-      </form>
-    </div></div>
-  </div>
+  <div class="modal fade" id="editCourse{{c.id}}" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><form method="post" action="{{url_for('edit_course',course_id=c.id)}}"><div class="modal-header"><h5 class="modal-title">Edit Course</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="row g-3"><div class="col-12 col-md-8"><label class="form-label">Course Title</label><input class="form-control" name="title" value="{{c.title}}" required></div><div class="col-12 col-md-4"><label class="form-label">Category</label><input class="form-control" name="category" value="{{c.category or ''}}"></div><div class="col-12 col-md-6"><label class="form-label">Level</label><select class="form-select" name="level"><option {% if c.level=='Beginner' %}selected{% endif %}>Beginner</option><option {% if c.level=='Intermediate' %}selected{% endif %}>Intermediate</option><option {% if c.level=='Advanced' %}selected{% endif %}>Advanced</option></select></div><div class="col-12 col-md-6"><label class="form-label">Status</label><select class="form-select" name="published"><option value="1" {% if c.published %}selected{% endif %}>Published</option><option value="0" {% if not c.published %}selected{% endif %}>Draft / Hidden</option></select></div><div class="col-12"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="4" required>{{c.description or ''}}</textarea></div><div class="col-12"><label class="form-label">Thumbnail URL</label><input class="form-control" name="thumbnail" value="{{c.thumbnail or ''}}"></div>{% if role == 'admin' %}<div class="col-12"><label class="form-label">Instructor</label><select class="form-select" name="instructor_id"><option value="">No instructor assigned</option>{% for u in users if u.role == 'instructor' %}<option value="{{u.id}}" {% if c.instructor_id == u.id %}selected{% endif %}>{{u.name}} — {{u.email}}</option>{% endfor %}</select></div>{% endif %}</div></div><div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save Course Changes</button></div></form></div></div></div>
   {% endfor %}
 </div>
 {% endblock %}

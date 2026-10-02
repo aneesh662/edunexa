@@ -66,9 +66,15 @@ def init_db():
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
-    cols = [r["name"] for r in conn.execute("PRAGMA table_info(lessons)").fetchall()]
-    if "pdf_url" not in cols:
+    # Safe migrations for databases created by older versions
+    lesson_cols = [r["name"] for r in conn.execute("PRAGMA table_info(lessons)").fetchall()]
+    if "pdf_url" not in lesson_cols:
         conn.execute("ALTER TABLE lessons ADD COLUMN pdf_url TEXT DEFAULT ''")
+    course_cols = [r["name"] for r in conn.execute("PRAGMA table_info(courses)").fetchall()]
+    if "instructor_id" not in course_cols:
+        conn.execute("ALTER TABLE courses ADD COLUMN instructor_id INTEGER")
+    if "published" not in course_cols:
+        conn.execute("ALTER TABLE courses ADD COLUMN published INTEGER DEFAULT 1")
     # Seed only the administrator. All students/instructors must be created by an admin.
     if conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 0:
         now = datetime.now().isoformat(timespec="seconds")
@@ -383,10 +389,35 @@ def remove_course_assignment(user_id,course_id):
 @login_required
 @role_required("admin","instructor")
 def create_course():
-    conn=db(); now=datetime.now().isoformat(timespec="seconds")
-    conn.execute("""INSERT INTO courses(title,description,category,level,thumbnail,instructor_id,created_at)
-                    VALUES(?,?,?,?,?,?,?)""",(request.form.get("title",""),request.form.get("description",""),request.form.get("category","General"),request.form.get("level","Beginner"),request.form.get("thumbnail",""),session["user_id"],now))
-    conn.commit(); conn.close(); flash("Course created.","success"); return redirect(url_for("admin"))
+    title=request.form.get("title","").strip()
+    description=request.form.get("description","").strip()
+    category=request.form.get("category","General").strip() or "General"
+    level=request.form.get("level","Beginner").strip() or "Beginner"
+    thumbnail=request.form.get("thumbnail","").strip()
+    published=1 if request.form.get("published") == "1" else 0
+    if not title or not description:
+        flash("Course title and description are required.","danger")
+        return redirect(url_for("admin"))
+    instructor_id=session["user_id"]
+    conn=db()
+    if session.get("role")=="admin":
+        raw=request.form.get("instructor_id","").strip()
+        if raw:
+            try:
+                candidate=int(raw)
+                if conn.execute("SELECT 1 FROM users WHERE id=? AND role='instructor'",(candidate,)).fetchone():
+                    instructor_id=candidate
+                else:
+                    instructor_id=None
+            except ValueError:
+                instructor_id=None
+        else:
+            instructor_id=None
+    conn.execute("""INSERT INTO courses(title,description,category,level,thumbnail,instructor_id,published,created_at)
+                    VALUES(?,?,?,?,?,?,?,?)""",(title,description,category,level,thumbnail,instructor_id,published,datetime.now().isoformat(timespec="seconds")))
+    conn.commit(); conn.close()
+    flash("Course created successfully.","success")
+    return redirect(url_for("admin"))
 
 @app.post("/admin/course/<int:course_id>/edit")
 @login_required
