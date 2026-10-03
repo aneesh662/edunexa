@@ -676,16 +676,5 @@ def download_database():
         create_database()
     return send_file(DB, as_attachment=True, download_name="tutorial.db", mimetype="application/x-sqlite3")
 
-@app.get("/health")
-def health():
-    try:
-        conn=db()
-        conn.execute("SELECT 1")
-        conn.close()
-        return {"status":"ok","database":"sqlite"}, 200
-    except Exception as exc:
-        app.logger.exception("Health check failed")
-        return {"status":"error","message":str(exc)}, 500
-
 if __name__=="__main__":
     app.run(host="0.0.0.0",port=int(os.environ.get("PORT",5000)),debug=True)
