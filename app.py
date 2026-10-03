@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import sqlite3, os, secrets
@@ -32,9 +32,8 @@ def db():
     return conn
 
 def create_database():
-    """Create the SQLite database only when tutorial.db does not exist.
-    Normal application refreshes never reset or reseed the database.
-    All data changes happen through application routes.
+    """Create the persistent tutorial.db once, only when it is missing.
+    Normal application starts and page refreshes never reset or reseed data.
     """
     if os.path.exists(DB):
         return
@@ -91,36 +90,8 @@ def create_database():
     now = datetime.now().isoformat(timespec="seconds")
     conn.execute("INSERT INTO users(name,email,password,role,created_at) VALUES(?,?,?,?,?)",
                  ("Administrator","admin@example.com",generate_password_hash("admin123"),"admin",now))
-    courses = [
-        ("Python for Beginners","Learn Python from fundamentals to practical data handling.","Programming","Beginner",""),
-        ("Power BI Data Analytics","Build professional dashboards, KPIs and business reports.","Data Analytics","Intermediate",""),
-        ("Advanced Excel","Master formulas, PivotTables, charts and data analysis.","Business","Intermediate",""),
-        ("Financial Accounting","Understand accounting principles with practical business examples.","Finance","Beginner","")
-    ]
-    lesson_data = {
-        "Python for Beginners":[("Introduction to Python","Python is a readable, versatile programming language. In this lesson learn variables, types and the interpreter.",10),("Variables and Data Types","Strings, numbers, lists, tuples and dictionaries with simple examples.",18),("Conditions and Loops","Use if statements and loops to automate repeated work.",20),("Functions and Mini Project","Create reusable functions and finish a small practical project.",25)],
-        "Power BI Data Analytics":[("Power BI Overview","Understand the report workflow: import, transform, model and visualize.",12),("Power Query Basics","Clean, merge and transform business data.",22),("DAX Fundamentals","Create measures and calculated columns using DAX.",25),("Dashboard Project","Build a management dashboard with KPIs and trends.",30)],
-        "Advanced Excel":[("Excel Foundations","Tables, references, formatting and efficient workbook structure.",12),("Lookup and Logic","Use XLOOKUP, INDEX/MATCH and logical functions.",22),("PivotTables","Summarize large datasets and build useful reports.",25),("Dashboard Project","Combine formulas, pivots and charts into a dashboard.",30)],
-        "Financial Accounting":[("Accounting Fundamentals","Understand the accounting equation and double-entry bookkeeping.",15),("Journal and Ledger","Record transactions and post them to ledgers.",20),("Trial Balance","Prepare and review a trial balance.",18),("Financial Statements","Prepare income statement, balance sheet and cash flow basics.",25)]
-    }
-    for title,desc,cat,level,thumb in courses:
-        cur=conn.execute("INSERT INTO courses(title,description,category,level,thumbnail,published,created_at) VALUES(?,?,?,?,?,?,?)",
-                         (title,desc,cat,level,thumb,1,now))
-        cid=cur.lastrowid
-        pos=1
-        for lt,content,dur in lesson_data[title]:
-            conn.execute("INSERT INTO lessons(course_id,title,content,video_url,pdf_url,duration,position) VALUES(?,?,?,?,?,?,?)",
-                         (cid,lt,content,"","",dur,pos))
-            pos+=1
-        q=conn.execute("INSERT INTO quizzes(course_id,title) VALUES(?,?)",(cid,"Knowledge Check"))
-        qid=q.lastrowid
-        for question,a,b,c,d,ans in [
-            ("Which step normally comes first in a data workflow?","Import data","Delete database","Print report","Send email","A"),
-            ("Which item helps track learning completion?","Progress","Wallpaper","Invoice","Folder","A"),
-            ("What is a reusable block of Python code called?","Function","Cell","Slide","Record","A")]:
-            conn.execute("INSERT INTO questions(quiz_id,question,option_a,option_b,option_c,option_d,answer) VALUES(?,?,?,?,?,?,?)",
-                         (qid,question,a,b,c,d,ans))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
 
 # tutorial.db is persistent. It is created once if missing; refresh/restart never resets it.
 create_database()
@@ -178,17 +149,112 @@ def index():
     conn.close()
     return render_template("index.html", courses=courses)
 
-@app.route("/login", methods=["GET","POST"])
-
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method=="POST":
-        email=request.form["email"].strip().lower(); pw=request.form["password"]
-        conn=db(); u=conn.execute("SELECT * FROM users WHERE email=?",(email,)).fetchone(); conn.close()
-        if u and check_password_hash(u["password"],pw):
-            session.update(user_id=u["id"],name=u["name"],role=u["role"])
-            return redirect(request.args.get("next") or url_for("dashboard"))
-        flash("Invalid email or password.","danger")
+    # Public registration is intentionally disabled. Accounts are created by Admin only.
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        password = request.form.get("password") or ""
+        if not email or not password:
+            flash("Please enter your email and password.", "danger")
+            return render_template("login.html"), 400
+        try:
+            conn = db()
+            user = conn.execute(
+                "SELECT id,name,email,password,role FROM users WHERE lower(email)=? LIMIT 1",
+                (email,)
+            ).fetchone()
+            conn.close()
+            valid = False
+            if user:
+                stored = user["password"] or ""
+                try:
+                    valid = check_password_hash(stored, password)
+                except (ValueError, TypeError):
+                    valid = False
+            if valid:
+                session.clear()
+                session["user_id"] = int(user["id"])
+                session["name"] = user["name"]
+                session["role"] = user["role"]
+                next_url = request.args.get("next", "")
+                # Only allow local relative redirects.
+                if next_url.startswith("/") and not next_url.startswith("//"):
+                    return redirect(next_url)
+                return redirect(url_for("dashboard"))
+        except Exception:
+            app.logger.exception("Login failed")
+        flash("Invalid email or password.", "danger")
     return render_template("login.html")
+
+@app.get("/admin/database")
+@login_required
+@role_required("admin")
+def database_management():
+    path = DB
+    size = os.path.getsize(path) if os.path.exists(path) else 0
+    modified = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M:%S") if os.path.exists(path) else "Not found"
+    return render_template("database.html", db_size=size, db_modified=modified)
+
+@app.get("/admin/database/backup")
+@login_required
+@role_required("admin")
+def database_backup():
+    if not os.path.exists(DB):
+        create_database()
+    return send_file(DB, as_attachment=True, download_name="tutorial_backup.db", mimetype="application/x-sqlite3")
+
+@app.post("/admin/database/restore")
+@login_required
+@role_required("admin")
+def database_restore():
+    upload=request.files.get("database_file")
+    if not upload or not upload.filename:
+        flash("Please select a SQLite backup file.", "danger")
+        return redirect(url_for("database_management"))
+    if not upload.filename.lower().endswith((".db",".sqlite",".sqlite3")):
+        flash("Only .db, .sqlite or .sqlite3 files are allowed.", "danger")
+        return redirect(url_for("database_management"))
+    import tempfile
+    fd,tmp=tempfile.mkstemp(prefix="tutorial_restore_", suffix=".db")
+    os.close(fd)
+    try:
+        upload.save(tmp)
+        test=sqlite3.connect(tmp)
+        try:
+            if test.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("SQLite integrity check failed")
+            tables={r[0] for r in test.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            required={"users","courses","lessons","course_assignments","progress"}
+            missing=required-tables
+            if missing:
+                raise ValueError("Backup is missing required tables: "+", ".join(sorted(missing)))
+        finally:
+            test.close()
+        if os.path.exists(DB):
+            shutil.copy2(DB, DB+".before_restore")
+        os.replace(tmp, DB)
+        session.clear()
+        flash("Database restored successfully. Please log in again.", "success")
+        return redirect(url_for("login"))
+    except Exception as exc:
+        app.logger.exception("Database restore failed")
+        if os.path.exists(tmp): os.remove(tmp)
+        flash(f"Restore failed: {exc}", "danger")
+        return redirect(url_for("database_management"))
+
+@app.get("/health")
+def health():
+    """Lightweight deployment/database health check."""
+    try:
+        conn = db()
+        admin = conn.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()
+        conn.execute("SELECT 1").fetchone()
+        conn.close()
+        return {"status": "ok", "database": "sqlite", "admin_account": bool(admin)}, 200
+    except Exception as exc:
+        app.logger.exception("Health check failed")
+        return {"status": "error", "message": str(exc)}, 500
 
 @app.route("/logout")
 def logout():
@@ -564,6 +630,42 @@ def progress_api(course_id):
     done=conn.execute("""SELECT COUNT(*) c FROM progress p JOIN lessons l ON l.id=p.lesson_id
                          WHERE p.user_id=? AND l.course_id=? AND p.completed=1""",(session["user_id"],course_id)).fetchone()["c"]
     conn.close(); return jsonify({"total":total,"completed":done,"percent":round(done/total*100) if total else 0})
+
+@app.get("/admin/student-progress")
+@login_required
+@role_required("admin")
+def student_progress():
+    conn = db()
+    students = conn.execute("""SELECT id,name,email,created_at FROM users
+                              WHERE role='student' ORDER BY name COLLATE NOCASE""").fetchall()
+    selected_id = request.args.get("student_id", type=int)
+    if selected_id is None and students:
+        selected_id = students[0]["id"]
+    selected = None
+    courses = []
+    if selected_id:
+        selected = conn.execute("SELECT id,name,email FROM users WHERE id=? AND role='student'", (selected_id,)).fetchone()
+        if selected:
+            courses = conn.execute("""SELECT c.id,c.title,c.category,c.level,
+                COUNT(l.id) lesson_total,
+                SUM(CASE WHEN p.completed=1 THEN 1 ELSE 0 END) completed_lessons,
+                ca.assigned_at
+                FROM course_assignments ca
+                JOIN courses c ON c.id=ca.course_id
+                LEFT JOIN lessons l ON l.course_id=c.id
+                LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=ca.user_id
+                WHERE ca.user_id=?
+                GROUP BY c.id, c.title, c.category, c.level, ca.assigned_at
+                ORDER BY c.title COLLATE NOCASE""", (selected_id,)).fetchall()
+            # Detailed timeline for every assigned course.
+            for idx, c in enumerate(courses):
+                rows = conn.execute("""SELECT l.id,l.title,l.position,l.duration,l.video_url,l.pdf_url,
+                    COALESCE(p.completed,0) completed,p.completed_at
+                    FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=?
+                    WHERE l.course_id=? ORDER BY l.position,l.id""", (selected_id,c["id"])).fetchall()
+                courses[idx] = {**dict(c), "lessons": [dict(r) for r in rows]}
+    conn.close()
+    return render_template("student_progress.html", students=students, selected=selected, courses=courses)
 
 @app.get("/admin/database/download")
 @login_required

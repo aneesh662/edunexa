@@ -19,3 +19,6 @@ body{background:#f7f9fc;color:var(--ink);font-family:Inter,system-ui,-apple-syst
 .pdf-viewer iframe{width:100%;height:100%;border:0;display:block;background:#fff}
 .video-wrap iframe{pointer-events:auto}
 @media(max-width:767.98px){.pdf-viewer{height:70vh}.study-material{padding:12px!important}}
+
+/* Lesson timeline */
+.lesson-timeline{position:relative;padding-left:4px}.lesson-timeline:before{content:"";position:absolute;left:25px;top:18px;bottom:18px;width:2px;background:#e2e8f0}.lesson-link{position:relative;z-index:1}.lesson-link span{border:2px solid #fff;box-shadow:0 0 0 1px #dbe4f0}.lesson-link.active span{background:#2563eb;color:#fff}.lesson-link .media-dot{font-size:11px}.progress-ring{font-weight:700}

@@ -1,6 +1,6 @@
 # LearnHub Online Tutorial Platform
 
-Flask + SQLite + Bootstrap application for an admin-controlled online tutorial platform.
+Flask + SQLite + Bootstrap application for an admin-controlled online tutorial platform. This release starts with an empty course/lesson catalog; content is created only through the application.
 
 ## Important account rule
 There is **no public sign-up page**. Only an administrator can create students, instructors and administrators.
@@ -26,7 +26,7 @@ Admin/instructor can add, edit and delete lessons. Lesson editing supports:
 - Lesson order
 
 ## Student learning view
-The learning page has a left lesson sidebar. Students click a lesson to load only that lesson's video, PDF and content in the main area.
+The learning page has a left lesson timeline. Students click a lesson to load only that lesson's video, PDF and content in the main area. Video playback keeps the normal playback timeline while disabling the full-screen/keyboard shortcuts and removing application-level share/download links. PDF material is embedded in the learning page. External providers may still expose their own controls, so browser-level copying, screenshots, screen recording, or provider-side downloads cannot be technically guaranteed to be impossible.
 
 ## Local setup
 ```bash
@@ -83,3 +83,9 @@ SQLite is suitable for testing and small deployments. Render's normal filesystem
 This project includes `tutorial.db` in the project root. The application creates it automatically only if the file is missing. On normal page refreshes, login, logout, or server restarts, the database is NOT reset, recreated, or reseeded. Data changes are made through the application routes only.
 
 The admin can download the current database from **Manage → Download Database**. Keep `tutorial.db` in the GitHub repository if you want the same starting database to be deployed with the project. For Render, note that the local filesystem is not guaranteed to persist across every service replacement/redeploy; use persistent storage or PostgreSQL for production data.
+
+## Student progress
+Admins can open **Student Progress** and select any student. The page shows every assigned course, overall completion percentage, completed/total lessons, lesson-by-lesson status, media type and completion time. A **Progress** button is also available beside each student in User Management.
+
+## No sample courses or lessons
+The included `tutorial.db` contains only the administrator account. It contains **zero courses and zero lessons**. The application never seeds demo/sample courses or lessons on refresh or startup.
