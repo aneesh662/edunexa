@@ -1,16 +1,29 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
-import sqlite3, os, secrets
+import sqlite3, os, secrets, shutil
 from werkzeug.utils import secure_filename
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB = os.path.join(BASE_DIR, "tutorial.db")
+BUNDLED_DB = os.path.join(BASE_DIR, "tutorial.db")
+# Render persistent disk is mounted at /data. Locally, or when /data is not writable,
+# fall back to the project directory. The database is NEVER recreated when the file exists.
+_requested_data_dir = os.environ.get("TUTORIAL_DATA_DIR", "/data")
+try:
+    os.makedirs(_requested_data_dir, exist_ok=True)
+    _probe = os.path.join(_requested_data_dir, ".write_test")
+    with open(_probe, "a", encoding="utf-8"):
+        pass
+    os.remove(_probe)
+    DATA_DIR = _requested_data_dir
+except OSError:
+    DATA_DIR = BASE_DIR
+DB = os.path.join(DATA_DIR, "tutorial.db")
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-this-secret-key")
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
-UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 
@@ -23,7 +36,7 @@ def save_thumbnail(file):
     filename = secure_filename(file.filename)
     filename = f"{secrets.token_hex(8)}_{filename}"
     file.save(os.path.join(UPLOAD_DIR, filename))
-    return url_for("static", filename=f"uploads/{filename}")
+    return url_for("uploaded_media", filename=filename)
 
 def db():
     conn = sqlite3.connect(DB)
@@ -93,6 +106,11 @@ def create_database():
     conn.commit()
     conn.close()
 
+# First deployment to a new persistent disk: copy the bundled database once if available.
+# After that, the persistent file is authoritative and is never overwritten on restart/redeploy.
+if not os.path.exists(DB) and os.path.abspath(BUNDLED_DB) != os.path.abspath(DB) and os.path.exists(BUNDLED_DB):
+    shutil.copy2(BUNDLED_DB, DB)
+
 # tutorial.db is persistent. It is created once if missing; refresh/restart never resets it.
 create_database()
 
@@ -114,6 +132,16 @@ def role_required(*roles):
             return fn(*args, **kwargs)
         return wrapper
     return deco
+
+@app.get("/media/<path:filename>")
+@login_required
+def uploaded_media(filename):
+    # Course thumbnails are served from the persistent data directory.
+    safe_name = os.path.basename(filename)
+    path = os.path.join(UPLOAD_DIR, safe_name)
+    if not os.path.isfile(path):
+        return "Not found", 404
+    return send_file(path)
 
 @app.template_filter("pdf_preview_url")
 def pdf_preview_url(value):

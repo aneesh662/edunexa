@@ -89,3 +89,11 @@ Admins can open **Student Progress** and select any student. The page shows ever
 
 ## No sample courses or lessons
 The included `tutorial.db` contains only the administrator account. It contains **zero courses and zero lessons**. The application never seeds demo/sample courses or lessons on refresh or startup.
+
+## Production Render database persistence
+
+Render's default filesystem is ephemeral. This version stores `tutorial.db` and uploaded course thumbnails under `/data`, which is configured as a Render Persistent Disk in `render.yaml`. The application copies the bundled `tutorial.db` to `/data/tutorial.db` only on the first startup when the persistent database does not exist. Once `/data/tutorial.db` exists, it is never overwritten or reseeded by refreshes, restarts, or redeploys.
+
+**Important:** Render persistent disks require a paid web service. In the Render Dashboard, attach/verify the disk named `tutorial-data` with mount path `/data` before deploying. Render documents that only filesystem changes under the disk mount path persist across deploys/restarts. If you use a Free web service, use Render Postgres or another persistent datastore instead of SQLite, or upgrade the service to a plan that supports persistent disks.
+
+Existing data from an older deployment should be protected first: use **Manage → Backup & Restore → Download Database Backup**, then after attaching the persistent disk deploy this version and use **Restore Database** to upload that backup. This prevents your existing students, courses, assignments, lessons, and progress from being lost during migration.
