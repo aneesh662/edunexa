@@ -13,7 +13,7 @@
       <aside class="col-12 col-lg-3 col-xl-3 lesson-sidebar">
         <div class="p-3 p-lg-2 p-xl-3">
           <div class="d-flex justify-content-between align-items-center mb-2"><strong>Course Lessons</strong><span class="badge text-bg-light">{{lessons|length}}</span></div>
-          <div class="lesson-list">
+          <div class="lesson-timeline">
             {% for l in lessons %}
             <a href="{{url_for('learn',course_id=course.id,lesson_id=l.id)}}" class="lesson-link {% if l.id == lesson.id %}active{% endif %}">
               <span>{% if l.completed %}<i class="bi bi-check2"></i>{% else %}{{loop.index}}{% endif %}</span>
@@ -32,7 +32,7 @@
               {% if lesson.completed %}<span class="badge text-bg-success">Completed</span>{% endif %}
             </div>
             {% if lesson.video_url %}
-            <div class="video-wrap mb-4"><iframe data-youtube="{{lesson.video_url}}" src="about:blank" title="{{lesson.title}}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
+            <div class="video-wrap mb-4"><iframe data-youtube="{{lesson.video_url}}" src="about:blank" title="{{lesson.title}}" allow="autoplay; encrypted-media; picture-in-picture"></iframe></div>
             {% endif %}
             {% if lesson.content %}<div class="lesson-rich-content mb-4">{{lesson.content|replace('\n','<br>')|safe}}</div>{% endif %}
             {% if lesson.pdf_url %}<div class="study-material border rounded-3 p-3 mb-4">
@@ -52,7 +52,7 @@ document.querySelectorAll('[data-youtube]').forEach(function(f){
   try { const u=new URL(f.dataset.youtube); let id='';
     if(u.hostname.includes('youtube.com')) { id=u.searchParams.get('v') || (u.pathname.includes('/embed/') ? u.pathname.split('/embed/')[1].split('/')[0] : u.pathname.split('/').pop()); }
     if(u.hostname==='youtu.be') id=u.pathname.substring(1).split('/')[0];
-    if(id) f.src='https://www.youtube.com/embed/'+id+'?rel=0&controls=0&disablekb=1&fs=0&modestbranding=1&playsinline=1';
+    if(id) f.src='https://www.youtube.com/embed/'+id+'?rel=0&controls=1&disablekb=1&fs=0&modestbranding=1&playsinline=1';
   } catch(e) {}
 });
 </script>

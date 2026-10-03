@@ -11,7 +11,7 @@
 <div id="nav" class="collapse navbar-collapse"><ul class="navbar-nav ms-auto align-items-lg-center gap-lg-2">
 <li><a class="nav-link" href="{{ url_for('courses') }}">Courses</a></li>
 {% if current_user %}<li><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>{% endif %}
-{% if role in ['admin','instructor'] %}<li><a class="nav-link" href="{{ url_for('admin') }}">Manage</a></li>{% endif %}
+{% if role in ['admin','instructor'] %}<li><a class="nav-link" href="{{ url_for('admin') }}">Manage</a></li>{% endif %}{% if role == 'admin' %}<li><a class="nav-link" href="{{ url_for('student_progress') }}">Student Progress</a></li>{% endif %}
 {% if current_user %}<li><span class="small text-secondary">{{ current_user }}</span></li><li><a class="btn btn-outline-primary btn-sm" href="{{ url_for('logout') }}">Logout</a></li>
 {% else %}<li><a class="btn btn-primary btn-sm" href="{{ url_for('login') }}">Login</a></li>{% endif %}
 </ul></div></div></nav>

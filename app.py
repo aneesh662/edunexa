@@ -32,9 +32,9 @@ def db():
     return conn
 
 def create_database():
-    """Create the SQLite database only when tutorial.db does not exist.
-    Normal application refreshes never reset or reseed the database.
-    All data changes happen through application routes.
+    """Create tutorial.db only when it does not exist.
+    The database starts EMPTY except for the administrator account.
+    Courses, lessons and student assignments are created only through the application.
     """
     if os.path.exists(DB):
         return
@@ -91,36 +91,8 @@ def create_database():
     now = datetime.now().isoformat(timespec="seconds")
     conn.execute("INSERT INTO users(name,email,password,role,created_at) VALUES(?,?,?,?,?)",
                  ("Administrator","admin@example.com",generate_password_hash("admin123"),"admin",now))
-    courses = [
-        ("Python for Beginners","Learn Python from fundamentals to practical data handling.","Programming","Beginner",""),
-        ("Power BI Data Analytics","Build professional dashboards, KPIs and business reports.","Data Analytics","Intermediate",""),
-        ("Advanced Excel","Master formulas, PivotTables, charts and data analysis.","Business","Intermediate",""),
-        ("Financial Accounting","Understand accounting principles with practical business examples.","Finance","Beginner","")
-    ]
-    lesson_data = {
-        "Python for Beginners":[("Introduction to Python","Python is a readable, versatile programming language. In this lesson learn variables, types and the interpreter.",10),("Variables and Data Types","Strings, numbers, lists, tuples and dictionaries with simple examples.",18),("Conditions and Loops","Use if statements and loops to automate repeated work.",20),("Functions and Mini Project","Create reusable functions and finish a small practical project.",25)],
-        "Power BI Data Analytics":[("Power BI Overview","Understand the report workflow: import, transform, model and visualize.",12),("Power Query Basics","Clean, merge and transform business data.",22),("DAX Fundamentals","Create measures and calculated columns using DAX.",25),("Dashboard Project","Build a management dashboard with KPIs and trends.",30)],
-        "Advanced Excel":[("Excel Foundations","Tables, references, formatting and efficient workbook structure.",12),("Lookup and Logic","Use XLOOKUP, INDEX/MATCH and logical functions.",22),("PivotTables","Summarize large datasets and build useful reports.",25),("Dashboard Project","Combine formulas, pivots and charts into a dashboard.",30)],
-        "Financial Accounting":[("Accounting Fundamentals","Understand the accounting equation and double-entry bookkeeping.",15),("Journal and Ledger","Record transactions and post them to ledgers.",20),("Trial Balance","Prepare and review a trial balance.",18),("Financial Statements","Prepare income statement, balance sheet and cash flow basics.",25)]
-    }
-    for title,desc,cat,level,thumb in courses:
-        cur=conn.execute("INSERT INTO courses(title,description,category,level,thumbnail,published,created_at) VALUES(?,?,?,?,?,?,?)",
-                         (title,desc,cat,level,thumb,1,now))
-        cid=cur.lastrowid
-        pos=1
-        for lt,content,dur in lesson_data[title]:
-            conn.execute("INSERT INTO lessons(course_id,title,content,video_url,pdf_url,duration,position) VALUES(?,?,?,?,?,?,?)",
-                         (cid,lt,content,"","",dur,pos))
-            pos+=1
-        q=conn.execute("INSERT INTO quizzes(course_id,title) VALUES(?,?)",(cid,"Knowledge Check"))
-        qid=q.lastrowid
-        for question,a,b,c,d,ans in [
-            ("Which step normally comes first in a data workflow?","Import data","Delete database","Print report","Send email","A"),
-            ("Which item helps track learning completion?","Progress","Wallpaper","Invoice","Folder","A"),
-            ("What is a reusable block of Python code called?","Function","Cell","Slide","Record","A")]:
-            conn.execute("INSERT INTO questions(quiz_id,question,option_a,option_b,option_c,option_d,answer) VALUES(?,?,?,?,?,?,?)",
-                         (qid,question,a,b,c,d,ans))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
 
 # tutorial.db is persistent. It is created once if missing; refresh/restart never resets it.
 create_database()
@@ -564,6 +536,42 @@ def progress_api(course_id):
     done=conn.execute("""SELECT COUNT(*) c FROM progress p JOIN lessons l ON l.id=p.lesson_id
                          WHERE p.user_id=? AND l.course_id=? AND p.completed=1""",(session["user_id"],course_id)).fetchone()["c"]
     conn.close(); return jsonify({"total":total,"completed":done,"percent":round(done/total*100) if total else 0})
+
+@app.get("/admin/student-progress")
+@login_required
+@role_required("admin")
+def student_progress():
+    conn = db()
+    students = conn.execute("""SELECT id,name,email,created_at FROM users
+                              WHERE role='student' ORDER BY name COLLATE NOCASE""").fetchall()
+    selected_id = request.args.get("student_id", type=int)
+    if selected_id is None and students:
+        selected_id = students[0]["id"]
+    selected = None
+    courses = []
+    if selected_id:
+        selected = conn.execute("SELECT id,name,email FROM users WHERE id=? AND role='student'", (selected_id,)).fetchone()
+        if selected:
+            courses = conn.execute("""SELECT c.id,c.title,c.category,c.level,
+                COUNT(l.id) lesson_total,
+                SUM(CASE WHEN p.completed=1 THEN 1 ELSE 0 END) completed_lessons,
+                ca.assigned_at
+                FROM course_assignments ca
+                JOIN courses c ON c.id=ca.course_id
+                LEFT JOIN lessons l ON l.course_id=c.id
+                LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=ca.user_id
+                WHERE ca.user_id=?
+                GROUP BY c.id, c.title, c.category, c.level, ca.assigned_at
+                ORDER BY c.title COLLATE NOCASE""", (selected_id,)).fetchall()
+            # Detailed timeline for every assigned course.
+            for idx, c in enumerate(courses):
+                rows = conn.execute("""SELECT l.id,l.title,l.position,l.duration,l.video_url,l.pdf_url,
+                    COALESCE(p.completed,0) completed,p.completed_at
+                    FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=?
+                    WHERE l.course_id=? ORDER BY l.position,l.id""", (selected_id,c["id"])).fetchall()
+                courses[idx] = {**dict(c), "lessons": [dict(r) for r in rows]}
+    conn.close()
+    return render_template("student_progress.html", students=students, selected=selected, courses=courses)
 
 @app.get("/admin/database/download")
 @login_required

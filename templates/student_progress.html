@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}Student Progress{% endblock %}
+{% block content %}
+<div class="container py-4 py-lg-5">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+    <div><h1 class="h3 fw-bold mb-1">Student Progress</h1><p class="text-secondary mb-0">Review assigned courses and lesson completion for each student.</p></div>
+    <a class="btn btn-outline-primary" href="{{url_for('admin')}}"><i class="bi bi-arrow-left"></i> Manage</a>
+  </div>
+  <div class="row g-4">
+    <aside class="col-12 col-lg-4 col-xl-3">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <h5 class="fw-bold mb-3">Students</h5>
+          {% if students %}
+          <div class="list-group list-group-flush">
+            {% for s in students %}
+            <a class="list-group-item list-group-item-action border rounded-3 mb-2 {% if selected and selected.id == s.id %}active{% endif %}" href="{{url_for('student_progress',student_id=s.id)}}">
+              <div class="fw-semibold">{{s.name}}</div><div class="small {% if selected and selected.id == s.id %}text-white-50{% else %}text-secondary{% endif %}">{{s.email}}</div>
+            </a>
+            {% endfor %}
+          </div>
+          {% else %}<div class="text-secondary small">No students have been created yet.</div>{% endif %}
+        </div>
+      </div>
+    </aside>
+    <main class="col-12 col-lg-8 col-xl-9">
+      {% if selected %}
+      <div class="card border-0 shadow-sm mb-4"><div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+          <div><h2 class="h4 fw-bold mb-1">{{selected.name}}</h2><div class="text-secondary small">{{selected.email}}</div></div>
+          <span class="badge text-bg-primary">Student</span>
+        </div>
+      </div></div>
+      {% if courses %}
+        {% for c in courses %}
+        {% set total=c.lesson_total or 0 %}{% set done=c.completed_lessons or 0 %}{% set pct=((done/total*100)|round(0,'common'))|int if total else 0 %}
+        <div class="card border-0 shadow-sm mb-4">
+          <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between gap-3 mb-2"><div><h3 class="h5 fw-bold mb-1">{{c.title}}</h3><div class="small text-secondary">{{c.category or 'General'}} • {{c.level or 'Beginner'}}</div></div><div class="text-end"><div class="fw-bold">{{pct}}%</div><div class="small text-secondary">{{done}} / {{total}} lessons</div></div></div>
+            <div class="progress mb-3" style="height:8px"><div class="progress-bar" style="width:{{pct}}%"></div></div>
+            <div class="timeline-progress">
+              {% for l in c.lessons %}
+              <div class="d-flex gap-3 py-3 border-bottom">
+                <div class="pt-1">{% if l.completed %}<i class="bi bi-check-circle-fill text-success"></i>{% else %}<i class="bi bi-circle text-secondary"></i>{% endif %}</div>
+                <div class="flex-grow-1"><div class="fw-semibold">{{loop.index}}. {{l.title}}</div><div class="small text-secondary">{{l.duration or 0}} min {% if l.video_url %}• Video{% endif %}{% if l.pdf_url %} • PDF{% endif %}</div>{% if l.completed_at %}<div class="small text-success">Completed: {{l.completed_at}}</div>{% endif %}</div>
+              </div>
+              {% endfor %}
+              {% if not c.lessons %}<div class="text-secondary small py-2">No lessons have been added to this course yet.</div>{% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}<div class="empty"><i class="bi bi-journal-x fs-1 text-secondary"></i><h4 class="mt-3">No assigned courses</h4><p class="text-secondary mb-0">Assign a course to this student from Manage.</p></div>{% endif %}
+      {% else %}
+      <div class="empty"><i class="bi bi-people fs-1 text-secondary"></i><h4 class="mt-3">Select a student</h4><p class="text-secondary mb-0">Choose a student from the left to view their progress.</p></div>
+      {% endif %}
+    </main>
+  </div>
+</div>
+{% endblock %}
