@@ -1,1 +1,55 @@
-{% extends 'base.html' %}{% block title %}Learning - {{course.title}}{% endblock %}{% block content %}<div class="container py-5"><h1 class="fw-bold">{{course.title}}</h1>{% for l in lessons %}<div class="card shadow-sm mb-3"><div class="card-body"><div class="d-flex justify-content-between"><h5>{{loop.index}}. {{l.title}}</h5>{% if l.completed %}<span class="badge text-bg-success">Completed</span>{% endif %}</div><p class="text-secondary">{{l.description}}</p>{% if l.video_url %}<div class="ratio ratio-16x9 mb-3"><iframe data-youtube="{{l.video_url}}" src="{{l.video_url}}" allowfullscreen></iframe></div>{% endif %}{% if l.pdf_url %}<a class="btn btn-outline-danger btn-sm me-2" href="{{l.pdf_url}}" target="_blank" rel="noopener">📄 Open PDF / Study Material</a>{% endif %}{% if not l.completed %}<form class="d-inline" method="post" action="{{url_for('complete_lesson',lesson_id=l.id)}}"><button class="btn btn-success btn-sm">Mark Complete</button></form>{% endif %}</div></div>{% else %}<div class="alert alert-info">No lessons available.</div>{% endfor %}{% if quiz %}<a class="btn btn-dark btn-lg" href="{{url_for('quiz',quiz_id=quiz.id)}}">Take Course Quiz</a>{% endif %}</div><script>document.querySelectorAll('[data-youtube]').forEach(function(f){try{const u=new URL(f.dataset.youtube);let id='';if(u.hostname.includes('youtube.com'))id=u.searchParams.get('v')||u.pathname.split('/').pop();if(u.hostname==='youtu.be')id=u.pathname.substring(1);if(id)f.src='https://www.youtube.com/embed/'+id}catch(e){}});</script>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}{{course.title}} - Learning{% endblock %}
+{% block content %}
+<div class="learning-page">
+  <div class="container-fluid px-0">
+    <div class="learning-header border-bottom bg-white px-3 px-md-4 py-3">
+      <div class="container-fluid container-xxl">
+        <a href="{{url_for('course',course_id=course.id)}}" class="text-decoration-none small"><i class="bi bi-arrow-left"></i> Back to course</a>
+        <h1 class="h4 fw-bold mb-0 mt-1">{{course.title}}</h1>
+      </div>
+    </div>
+    <div class="row g-0 learning-shell">
+      <aside class="col-12 col-lg-3 col-xl-3 lesson-sidebar">
+        <div class="p-3 p-lg-2 p-xl-3">
+          <div class="d-flex justify-content-between align-items-center mb-2"><strong>Course Lessons</strong><span class="badge text-bg-light">{{lessons|length}}</span></div>
+          <div class="lesson-list">
+            {% for l in lessons %}
+            <a href="{{url_for('learn',course_id=course.id,lesson_id=l.id)}}" class="lesson-link {% if l.id == lesson.id %}active{% endif %}">
+              <span>{% if l.completed %}<i class="bi bi-check2"></i>{% else %}{{loop.index}}{% endif %}</span>
+              <div class="flex-grow-1"><strong>{{l.title}}</strong><small>{{l.duration or 0}} min{% if l.completed %} • Completed{% endif %}</small></div>
+            </a>
+            {% endfor %}
+          </div>
+          {% if not lessons %}<div class="text-secondary small py-3">No lessons available.</div>{% endif %}
+        </div>
+      </aside>
+      <main class="col-12 col-lg-9 col-xl-9 bg-light">
+        <div class="lesson-content-wrap p-3 p-md-4 p-xl-5">
+          <div class="content-box shadow-sm">
+            <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+              <div><div class="small text-primary fw-semibold">LESSON {{lesson.position}}</div><h2 class="fw-bold mb-1">{{lesson.title}}</h2><div class="small text-secondary">{{lesson.duration or 0}} minutes</div></div>
+              {% if lesson.completed %}<span class="badge text-bg-success">Completed</span>{% endif %}
+            </div>
+            {% if lesson.video_url %}
+            <div class="video-wrap mb-4"><iframe data-youtube="{{lesson.video_url}}" src="about:blank" title="{{lesson.title}}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>
+            {% endif %}
+            {% if lesson.content %}<div class="lesson-rich-content mb-4">{{lesson.content|replace('\n','<br>')|safe}}</div>{% endif %}
+            {% if lesson.pdf_url %}<div class="study-material border rounded-3 p-3 mb-4"><div class="fw-semibold mb-1"><i class="bi bi-file-earmark-pdf text-danger"></i> Study Material</div><p class="small text-secondary mb-2">Open the PDF material for this lesson.</p><a class="btn btn-outline-danger" href="{{lesson.pdf_url}}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open PDF</a></div>{% endif %}
+            {% if not lesson.completed %}<form method="post" action="{{url_for('complete_lesson',lesson_id=lesson.id)}}"><button class="btn btn-success"><i class="bi bi-check2-circle"></i> Mark Lesson Complete</button></form>{% else %}<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> You completed this lesson.</div>{% endif %}
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</div>
+<script>
+document.querySelectorAll('[data-youtube]').forEach(function(f){
+  try { const u=new URL(f.dataset.youtube); let id='';
+    if(u.hostname.includes('youtube.com')) { id=u.searchParams.get('v') || (u.pathname.includes('/embed/') ? u.pathname.split('/embed/')[1].split('/')[0] : u.pathname.split('/').pop()); }
+    if(u.hostname==='youtu.be') id=u.pathname.substring(1).split('/')[0];
+    if(id) f.src='https://www.youtube.com/embed/'+id+'?rel=0';
+  } catch(e) {}
+});
+</script>
+{% endblock %}

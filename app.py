@@ -2,12 +2,28 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import sqlite3, os, secrets
+from werkzeug.utils import secure_filename
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE_DIR, "tutorial.db")
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "change-this-secret-key")
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
+UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
+
+def save_thumbnail(file):
+    if not file or not file.filename:
+        return ""
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        raise ValueError("Thumbnail must be PNG, JPG, JPEG, WEBP or GIF.")
+    filename = secure_filename(file.filename)
+    filename = f"{secrets.token_hex(8)}_{filename}"
+    file.save(os.path.join(UPLOAD_DIR, filename))
+    return url_for("static", filename=f"uploads/{filename}")
 
 def db():
     conn = sqlite3.connect(DB)
@@ -15,121 +31,99 @@ def db():
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
-def init_db():
+def create_database():
+    """Create the SQLite database only when tutorial.db does not exist.
+    Normal application refreshes never reset or reseed the database.
+    All data changes happen through application routes.
+    """
+    if os.path.exists(DB):
+        return
     conn = db()
     conn.executescript("""
-    CREATE TABLE IF NOT EXISTS users(
+    CREATE TABLE users(
       id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'student', created_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS courses(
+    CREATE TABLE courses(
       id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, description TEXT, category TEXT,
       level TEXT, thumbnail TEXT, instructor_id INTEGER, published INTEGER DEFAULT 1,
       created_at TEXT NOT NULL, FOREIGN KEY(instructor_id) REFERENCES users(id) ON DELETE SET NULL
     );
-    CREATE TABLE IF NOT EXISTS lessons(
+    CREATE TABLE lessons(
       id INTEGER PRIMARY KEY AUTOINCREMENT, course_id INTEGER NOT NULL, title TEXT NOT NULL,
       content TEXT, video_url TEXT, pdf_url TEXT DEFAULT '', duration INTEGER DEFAULT 0, position INTEGER DEFAULT 0,
       FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS enrollments(
+    CREATE TABLE enrollments(
       id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, course_id INTEGER NOT NULL,
       enrolled_at TEXT NOT NULL, UNIQUE(user_id,course_id),
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS course_assignments(
+    CREATE TABLE course_assignments(
       id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, course_id INTEGER NOT NULL,
       assigned_at TEXT NOT NULL, UNIQUE(user_id,course_id),
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS progress(
+    CREATE TABLE progress(
       id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, lesson_id INTEGER NOT NULL,
       completed INTEGER DEFAULT 0, completed_at TEXT, UNIQUE(user_id,lesson_id),
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(lesson_id) REFERENCES lessons(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS quizzes(
+    CREATE TABLE quizzes(
       id INTEGER PRIMARY KEY AUTOINCREMENT, course_id INTEGER NOT NULL, title TEXT NOT NULL,
       FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS questions(
+    CREATE TABLE questions(
       id INTEGER PRIMARY KEY AUTOINCREMENT, quiz_id INTEGER NOT NULL, question TEXT NOT NULL,
       option_a TEXT, option_b TEXT, option_c TEXT, option_d TEXT, answer TEXT NOT NULL,
       FOREIGN KEY(quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS quiz_results(
+    CREATE TABLE quiz_results(
       id INTEGER PRIMARY KEY AUTOINCREMENT, quiz_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
       score INTEGER NOT NULL, total INTEGER NOT NULL, taken_at TEXT NOT NULL,
       FOREIGN KEY(quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     """)
-    # Safe migrations for databases created by older versions
-    lesson_cols = [r["name"] for r in conn.execute("PRAGMA table_info(lessons)").fetchall()]
-    if "pdf_url" not in lesson_cols:
-        conn.execute("ALTER TABLE lessons ADD COLUMN pdf_url TEXT DEFAULT ''")
-    course_cols = [r["name"] for r in conn.execute("PRAGMA table_info(courses)").fetchall()]
-    if "instructor_id" not in course_cols:
-        conn.execute("ALTER TABLE courses ADD COLUMN instructor_id INTEGER")
-    if "published" not in course_cols:
-        conn.execute("ALTER TABLE courses ADD COLUMN published INTEGER DEFAULT 1")
-    # Seed only the administrator. All students/instructors must be created by an admin.
-    if conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 0:
-        now = datetime.now().isoformat(timespec="seconds")
-        conn.execute("INSERT INTO users(name,email,password,role,created_at) VALUES(?,?,?,?,?)",
-                     ("Administrator","admin@example.com",generate_password_hash("admin123"),"admin",now))
-    if conn.execute("SELECT COUNT(*) c FROM courses").fetchone()["c"] == 0:
-        instructor = None
-        now = datetime.now().isoformat(timespec="seconds")
-        courses = [
-            ("Python for Beginners","Learn Python from fundamentals to practical data handling.","Programming","Beginner","https://images.unsplash.com/photo-1526379095098-d400fd0bf935?w=800",instructor),
-            ("Power BI Data Analytics","Build professional dashboards, KPIs and business reports.","Data Analytics","Intermediate","https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800",instructor),
-            ("Advanced Excel","Master formulas, PivotTables, charts and data analysis.","Business","Intermediate","https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=800",instructor),
-            ("Financial Accounting","Understand accounting principles with practical business examples.","Finance","Beginner","https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800",instructor)
-        ]
-        for c in courses:
-            conn.execute("""INSERT INTO courses(title,description,category,level,thumbnail,instructor_id,created_at)
-                            VALUES(?,?,?,?,?,?,?)""",(*c,now))
-        rows = conn.execute("SELECT id,title FROM courses ORDER BY id").fetchall()
-        lesson_data = {
-            "Python for Beginners":[("Introduction to Python","Python is a readable, versatile programming language. In this lesson learn variables, types and the interpreter.",10),
-                                    ("Variables and Data Types","Strings, numbers, lists, tuples and dictionaries with simple examples.",18),
-                                    ("Conditions and Loops","Use if statements and loops to automate repeated work.",20),
-                                    ("Functions and Mini Project","Create reusable functions and finish a small practical project.",25)],
-            "Power BI Data Analytics":[("Power BI Overview","Understand the report workflow: import, transform, model and visualize.",12),
-                                      ("Power Query Basics","Clean, merge and transform business data.",22),
-                                      ("DAX Fundamentals","Create measures and calculated columns using DAX.",25),
-                                      ("Dashboard Project","Build a management dashboard with KPIs and trends.",30)],
-            "Advanced Excel":[("Excel Foundations","Tables, references, formatting and efficient workbook structure.",12),
-                              ("Lookup and Logic","Use XLOOKUP, INDEX/MATCH and logical functions.",22),
-                              ("PivotTables","Summarize large datasets and build useful reports.",25),
-                              ("Dashboard Project","Combine formulas, pivots and charts into a dashboard.",30)],
-            "Financial Accounting":[("Accounting Fundamentals","Understand the accounting equation and double-entry bookkeeping.",15),
-                                    ("Journal and Ledger","Record transactions and post them to ledgers.",20),
-                                    ("Trial Balance","Prepare and review a trial balance.",18),
-                                    ("Financial Statements","Prepare income statement, balance sheet and cash flow basics.",25)]
-        }
-        for row in rows:
-            pos=1
-            for title,content,dur in lesson_data[row["title"]]:
-                conn.execute("""INSERT INTO lessons(course_id,title,content,video_url,duration,position)
-                                VALUES(?,?,?,?,?,?)""",(row["id"],title,content,"https://www.youtube.com/embed/dQw4w9WgXcQ",dur,pos))
-                pos+=1
-        # One quiz per course
-        for row in rows:
-            conn.execute("INSERT INTO quizzes(course_id,title) VALUES(?,?)",(row["id"],"Knowledge Check"))
-            qid=conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            questions = [
-                ("Which step normally comes first in a data workflow?","Import data","Delete database","Print report","Send email","A"),
-                ("Which item helps track learning completion?","Progress","Wallpaper","Invoice","Folder","A"),
-                ("What is a reusable block of Python code called?","Function","Cell","Slide","Record","A")
-            ]
-            for q in questions:
-                conn.execute("""INSERT INTO questions(quiz_id,question,option_a,option_b,option_c,option_d,answer)
-                                VALUES(?,?,?,?,?,?,?)""",(qid,*q))
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute("INSERT INTO users(name,email,password,role,created_at) VALUES(?,?,?,?,?)",
+                 ("Administrator","admin@example.com",generate_password_hash("admin123"),"admin",now))
+    courses = [
+        ("Python for Beginners","Learn Python from fundamentals to practical data handling.","Programming","Beginner",""),
+        ("Power BI Data Analytics","Build professional dashboards, KPIs and business reports.","Data Analytics","Intermediate",""),
+        ("Advanced Excel","Master formulas, PivotTables, charts and data analysis.","Business","Intermediate",""),
+        ("Financial Accounting","Understand accounting principles with practical business examples.","Finance","Beginner","")
+    ]
+    lesson_data = {
+        "Python for Beginners":[("Introduction to Python","Python is a readable, versatile programming language. In this lesson learn variables, types and the interpreter.",10),("Variables and Data Types","Strings, numbers, lists, tuples and dictionaries with simple examples.",18),("Conditions and Loops","Use if statements and loops to automate repeated work.",20),("Functions and Mini Project","Create reusable functions and finish a small practical project.",25)],
+        "Power BI Data Analytics":[("Power BI Overview","Understand the report workflow: import, transform, model and visualize.",12),("Power Query Basics","Clean, merge and transform business data.",22),("DAX Fundamentals","Create measures and calculated columns using DAX.",25),("Dashboard Project","Build a management dashboard with KPIs and trends.",30)],
+        "Advanced Excel":[("Excel Foundations","Tables, references, formatting and efficient workbook structure.",12),("Lookup and Logic","Use XLOOKUP, INDEX/MATCH and logical functions.",22),("PivotTables","Summarize large datasets and build useful reports.",25),("Dashboard Project","Combine formulas, pivots and charts into a dashboard.",30)],
+        "Financial Accounting":[("Accounting Fundamentals","Understand the accounting equation and double-entry bookkeeping.",15),("Journal and Ledger","Record transactions and post them to ledgers.",20),("Trial Balance","Prepare and review a trial balance.",18),("Financial Statements","Prepare income statement, balance sheet and cash flow basics.",25)]
+    }
+    for title,desc,cat,level,thumb in courses:
+        cur=conn.execute("INSERT INTO courses(title,description,category,level,thumbnail,published,created_at) VALUES(?,?,?,?,?,?,?)",
+                         (title,desc,cat,level,thumb,1,now))
+        cid=cur.lastrowid
+        pos=1
+        for lt,content,dur in lesson_data[title]:
+            conn.execute("INSERT INTO lessons(course_id,title,content,video_url,pdf_url,duration,position) VALUES(?,?,?,?,?,?,?)",
+                         (cid,lt,content,"","",dur,pos))
+            pos+=1
+        q=conn.execute("INSERT INTO quizzes(course_id,title) VALUES(?,?)",(cid,"Knowledge Check"))
+        qid=q.lastrowid
+        for question,a,b,c,d,ans in [
+            ("Which step normally comes first in a data workflow?","Import data","Delete database","Print report","Send email","A"),
+            ("Which item helps track learning completion?","Progress","Wallpaper","Invoice","Folder","A"),
+            ("What is a reusable block of Python code called?","Function","Cell","Slide","Record","A")]:
+            conn.execute("INSERT INTO questions(quiz_id,question,option_a,option_b,option_c,option_d,answer) VALUES(?,?,?,?,?,?,?)",
+                         (qid,question,a,b,c,d,ans))
     conn.commit(); conn.close()
+
+# tutorial.db is persistent. It is created once if missing; refresh/restart never resets it.
+create_database()
 
 def login_required(fn):
     @wraps(fn)
@@ -232,6 +226,9 @@ def course(course_id):
                                        (session["user_id"],course_id)).fetchone())
     conn.close()
     if not c: return "Course not found",404
+    if session.get("role") == "student" and not enrolled:
+        flash("This course is not assigned to your account.","warning")
+        return redirect(url_for("dashboard"))
     return render_template("course.html",course=c,lessons=lessons,quiz=quiz,enrolled=enrolled)
 
 @app.post("/course/<int:course_id>/enroll")
@@ -258,7 +255,7 @@ def learn(course_id,lesson_id):
         conn.close(); flash("This course has not been assigned to your account.","danger"); return redirect(url_for("dashboard"))
     c=conn.execute("SELECT * FROM courses WHERE id=?",(course_id,)).fetchone()
     lessons=conn.execute("SELECT l.*, COALESCE(p.completed,0) completed FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=? WHERE l.course_id=? ORDER BY l.position",(session["user_id"],course_id)).fetchall()
-    lesson=conn.execute("SELECT * FROM lessons WHERE id=? AND course_id=?",(lesson_id,course_id)).fetchone()
+    lesson=conn.execute("SELECT l.*, COALESCE(p.completed,0) completed FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=? WHERE l.id=? AND l.course_id=?",(session["user_id"],lesson_id,course_id)).fetchone()
     done={r["lesson_id"] for r in conn.execute("SELECT lesson_id FROM progress WHERE user_id=? AND completed=1",(session["user_id"],)).fetchall()}
     conn.close()
     if not lesson: return "Lesson not found",404
@@ -321,8 +318,11 @@ def admin():
     if session.get("role") == "admin":
         assignments=conn.execute("""SELECT ca.user_id,ca.course_id,c.title,ca.assigned_at
             FROM course_assignments ca JOIN courses c ON c.id=ca.course_id ORDER BY ca.id DESC""").fetchall()
+    lessons_by_course={}
+    for c in courses:
+        lessons_by_course[c["id"]]=conn.execute("SELECT * FROM lessons WHERE course_id=? ORDER BY position,id",(c["id"],)).fetchall()
     conn.close()
-    return render_template("admin.html",data=data,courses=courses,users=users,assignments=assignments)
+    return render_template("admin.html",data=data,courses=courses,users=users,assignments=assignments,lessons_by_course=lessons_by_course)
 
 @app.post("/admin/user/create")
 @login_required
@@ -394,6 +394,13 @@ def create_course():
     category=request.form.get("category","General").strip() or "General"
     level=request.form.get("level","Beginner").strip() or "Beginner"
     thumbnail=request.form.get("thumbnail","").strip()
+    try:
+        uploaded_thumbnail = save_thumbnail(request.files.get("thumbnail_file"))
+        if uploaded_thumbnail:
+            thumbnail = uploaded_thumbnail
+    except ValueError as exc:
+        flash(str(exc), "danger")
+        return redirect(url_for("admin"))
     published=1 if request.form.get("published") == "1" else 0
     if not title or not description:
         flash("Course title and description are required.","danger")
@@ -437,6 +444,14 @@ def edit_course(course_id):
     category = request.form.get("category", "General").strip() or "General"
     level = request.form.get("level", "Beginner").strip() or "Beginner"
     thumbnail = request.form.get("thumbnail", "").strip()
+    try:
+        uploaded_thumbnail = save_thumbnail(request.files.get("thumbnail_file"))
+        if uploaded_thumbnail:
+            thumbnail = uploaded_thumbnail
+    except ValueError as exc:
+        conn.close()
+        flash(str(exc), "danger")
+        return redirect(url_for("admin"))
     published = 1 if request.form.get("published") == "1" else 0
 
     if not title or not description:
@@ -476,13 +491,46 @@ def create_lesson(course_id):
     if not course: conn.close(); return "Course not found",404
     if session.get("role")=="instructor" and course["instructor_id"]!=session["user_id"]:
         conn.close(); return "Forbidden",403
+    title=request.form.get("title","").strip()
+    if not title:
+        conn.close(); flash("Lesson title is required.","danger"); return redirect(url_for("admin"))
     pos=conn.execute("SELECT COALESCE(MAX(position),0)+1 p FROM lessons WHERE course_id=?",(course_id,)).fetchone()["p"]
-    try:
-        duration = int(request.form.get("duration", "0") or 0)
-    except ValueError:
-        duration = 0
-    conn.execute("""INSERT INTO lessons(course_id,title,content,video_url,pdf_url,duration,position) VALUES(?,?,?,?,?,?,?)""",(course_id,request.form.get("title",""),request.form.get("content",request.form.get("description","")),request.form.get("video_url",""),request.form.get("pdf_url",""),duration,pos))
+    try: duration=int(request.form.get("duration","0") or 0)
+    except ValueError: duration=0
+    try: position=int(request.form.get("lesson_order",pos) or pos)
+    except ValueError: position=pos
+    conn.execute("""INSERT INTO lessons(course_id,title,content,video_url,pdf_url,duration,position) VALUES(?,?,?,?,?,?,?)""",
+                 (course_id,title,request.form.get("content","").strip() or request.form.get("description","").strip(),request.form.get("video_url","").strip(),request.form.get("pdf_url","").strip(),max(0,duration),max(1,position)))
     conn.commit(); conn.close(); flash("Lesson added.","success"); return redirect(url_for("admin"))
+
+@app.post("/admin/lesson/<int:lesson_id>/edit")
+@login_required
+@role_required("admin","instructor")
+def edit_lesson(lesson_id):
+    conn=db(); lesson=conn.execute("SELECT l.*,c.instructor_id FROM lessons l JOIN courses c ON c.id=l.course_id WHERE l.id=?",(lesson_id,)).fetchone()
+    if not lesson: conn.close(); return "Lesson not found",404
+    if session.get("role")=="instructor" and lesson["instructor_id"]!=session["user_id"]:
+        conn.close(); return "Forbidden",403
+    title=request.form.get("title","").strip()
+    if not title:
+        conn.close(); flash("Lesson title is required.","danger"); return redirect(url_for("admin"))
+    try: duration=int(request.form.get("duration","0") or 0)
+    except ValueError: duration=0
+    try: position=int(request.form.get("lesson_order",lesson["position"]) or lesson["position"])
+    except ValueError: position=lesson["position"]
+    conn.execute("""UPDATE lessons SET title=?,content=?,video_url=?,pdf_url=?,duration=?,position=? WHERE id=?""",
+                 (title,request.form.get("content","").strip(),request.form.get("video_url","").strip(),request.form.get("pdf_url","").strip(),max(0,duration),max(1,position),lesson_id))
+    conn.commit(); conn.close(); flash("Lesson updated successfully.","success"); return redirect(url_for("admin"))
+
+@app.post("/admin/lesson/<int:lesson_id>/delete")
+@login_required
+@role_required("admin","instructor")
+def delete_lesson(lesson_id):
+    conn=db(); lesson=conn.execute("SELECT l.id,c.instructor_id FROM lessons l JOIN courses c ON c.id=l.course_id WHERE l.id=?",(lesson_id,)).fetchone()
+    if not lesson: conn.close(); return "Lesson not found",404
+    if session.get("role")=="instructor" and lesson["instructor_id"]!=session["user_id"]:
+        conn.close(); return "Forbidden",403
+    conn.execute("DELETE FROM lessons WHERE id=?",(lesson_id,)); conn.commit(); conn.close(); flash("Lesson deleted.","success"); return redirect(url_for("admin"))
 
 @app.post("/admin/course/<int:course_id>/delete")
 @login_required
@@ -499,6 +547,15 @@ def progress_api(course_id):
                          WHERE p.user_id=? AND l.course_id=? AND p.completed=1""",(session["user_id"],course_id)).fetchone()["c"]
     conn.close(); return jsonify({"total":total,"completed":done,"percent":round(done/total*100) if total else 0})
 
+@app.get("/admin/database/download")
+@login_required
+@role_required("admin")
+def download_database():
+    from flask import send_file
+    if not os.path.exists(DB):
+        create_database()
+    return send_file(DB, as_attachment=True, download_name="tutorial.db", mimetype="application/x-sqlite3")
+
 @app.get("/health")
 def health():
     try:
@@ -509,8 +566,6 @@ def health():
     except Exception as exc:
         app.logger.exception("Health check failed")
         return {"status":"error","message":str(exc)}, 500
-
-init_db()
 
 if __name__=="__main__":
     app.run(host="0.0.0.0",port=int(os.environ.get("PORT",5000)),debug=True)
