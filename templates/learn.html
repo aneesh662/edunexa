@@ -32,10 +32,14 @@
               {% if lesson.completed %}<span class="badge text-bg-success">Completed</span>{% endif %}
             </div>
             {% if lesson.video_url %}
-            <div class="video-wrap mb-4"><iframe data-youtube="{{lesson.video_url}}" src="about:blank" title="{{lesson.title}}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>
+            <div class="video-wrap mb-4"><iframe data-youtube="{{lesson.video_url}}" src="about:blank" title="{{lesson.title}}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
             {% endif %}
             {% if lesson.content %}<div class="lesson-rich-content mb-4">{{lesson.content|replace('\n','<br>')|safe}}</div>{% endif %}
-            {% if lesson.pdf_url %}<div class="study-material border rounded-3 p-3 mb-4"><div class="fw-semibold mb-1"><i class="bi bi-file-earmark-pdf text-danger"></i> Study Material</div><p class="small text-secondary mb-2">Open the PDF material for this lesson.</p><a class="btn btn-outline-danger" href="{{lesson.pdf_url}}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open PDF</a></div>{% endif %}
+            {% if lesson.pdf_url %}<div class="study-material border rounded-3 p-3 mb-4">
+              <div class="fw-semibold mb-1"><i class="bi bi-file-earmark-pdf text-danger"></i> Study Material</div>
+              <p class="small text-secondary mb-2">View this study material inside the course. Download and external sharing controls are not provided.</p>
+              <div class="pdf-viewer"><iframe src="{{lesson.pdf_url|pdf_preview_url}}" title="{{lesson.title}} PDF" loading="lazy" referrerpolicy="no-referrer"></iframe></div>
+            </div>{% endif %}
             {% if not lesson.completed %}<form method="post" action="{{url_for('complete_lesson',lesson_id=lesson.id)}}"><button class="btn btn-success"><i class="bi bi-check2-circle"></i> Mark Lesson Complete</button></form>{% else %}<div class="alert alert-success mb-0"><i class="bi bi-check-circle"></i> You completed this lesson.</div>{% endif %}
           </div>
         </div>
@@ -48,8 +52,18 @@ document.querySelectorAll('[data-youtube]').forEach(function(f){
   try { const u=new URL(f.dataset.youtube); let id='';
     if(u.hostname.includes('youtube.com')) { id=u.searchParams.get('v') || (u.pathname.includes('/embed/') ? u.pathname.split('/embed/')[1].split('/')[0] : u.pathname.split('/').pop()); }
     if(u.hostname==='youtu.be') id=u.pathname.substring(1).split('/')[0];
-    if(id) f.src='https://www.youtube.com/embed/'+id+'?rel=0';
+    if(id) f.src='https://www.youtube.com/embed/'+id+'?rel=0&controls=0&disablekb=1&fs=0&modestbranding=1&playsinline=1';
   } catch(e) {}
+});
+</script>
+<script>
+// Discourage casual copying/sharing from the learning viewer. This cannot prevent
+// screenshots, screen recording, browser developer tools, or determined copying.
+document.addEventListener('contextmenu', function(e){
+  if(e.target.closest('.learning-page, .pdf-viewer, .video-wrap')) e.preventDefault();
+});
+document.addEventListener('dragstart', function(e){
+  if(e.target.closest('.learning-page, .pdf-viewer, .video-wrap')) e.preventDefault();
 });
 </script>
 {% endblock %}

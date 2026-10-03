@@ -144,6 +144,24 @@ def role_required(*roles):
         return wrapper
     return deco
 
+@app.template_filter("pdf_preview_url")
+def pdf_preview_url(value):
+    """Convert common Google Drive share URLs to the embedded viewer URL.
+    Other PDF URLs are returned unchanged so they can still be displayed in an iframe.
+    """
+    from urllib.parse import urlparse
+    import re
+    value = (value or "").strip()
+    if not value:
+        return ""
+    m = re.search(r"/file/d/([A-Za-z0-9_-]+)", value)
+    if m:
+        return f"https://drive.google.com/file/d/{m.group(1)}/preview"
+    m = re.search(r"[?&]id=([A-Za-z0-9_-]+)", value)
+    if "drive.google.com" in urlparse(value).netloc and m:
+        return f"https://drive.google.com/file/d/{m.group(1)}/preview"
+    return value
+
 @app.context_processor
 def globals():
     return {"current_user": session.get("name"), "current_user_id": session.get("user_id"), "role": session.get("role")}
